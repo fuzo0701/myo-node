@@ -1,0 +1,71 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="512" y2="512">
+      <stop offset="0%" stop-color="#1A1A2E"/>
+      <stop offset="100%" stop-color="#0D0D0D"/>
+    </linearGradient>
+    <linearGradient id="neonGrad" x1="0" y1="0" x2="512" y2="512">
+      <stop offset="0%" stop-color="#00D9FF"/>
+      <stop offset="100%" stop-color="#FF00FF"/>
+    </linearGradient>
+    <linearGradient id="greenGrad" x1="0" y1="0" x2="100" y2="0">
+      <stop offset="0%" stop-color="#00FF88"/>
+      <stop offset="100%" stop-color="#00D9FF"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="100" fill="url(#bgGrad)"/>
+
+  <!-- Outer ring -->
+  <circle cx="256" cy="256" r="200" stroke="url(#neonGrad)" stroke-width="8" fill="none" filter="url(#glow)"/>
+
+  <!-- Cat face base -->
+  <circle cx="256" cy="270" r="140" fill="#16213E"/>
+
+  <!-- Cat ears -->
+  <path d="M130 180 L170 280 L100 250 Z" fill="#16213E" stroke="url(#neonGrad)" stroke-width="4"/>
+  <path d="M382 180 L342 280 L412 250 Z" fill="#16213E" stroke="url(#neonGrad)" stroke-width="4"/>
+
+  <!-- Inner ear -->
+  <path d="M140 200 L165 260 L120 240 Z" fill="#FF00FF" opacity="0.3"/>
+  <path d="M372 200 L347 260 L392 240 Z" fill="#00D9FF" opacity="0.3"/>
+
+  <!-- Eyes -->
+  <ellipse cx="190" cy="260" rx="35" ry="40" fill="#0D0D0D"/>
+  <ellipse cx="322" cy="260" rx="35" ry="40" fill="#0D0D0D"/>
+
+  <!-- Eye glow -->
+  <ellipse cx="190" cy="260" rx="25" ry="30" fill="#00D9FF" filter="url(#glow)"/>
+  <ellipse cx="322" cy="260" rx="25" ry="30" fill="#FF00FF" filter="url(#glow)"/>
+
+  <!-- Eye pupils -->
+  <ellipse cx="195" cy="255" rx="10" ry="15" fill="#0D0D0D"/>
+  <ellipse cx="327" cy="255" rx="10" ry="15" fill="#0D0D0D"/>
+
+  <!-- Eye highlights -->
+  <circle cx="185" cy="250" r="6" fill="#FFFFFF" opacity="0.8"/>
+  <circle cx="317" cy="250" r="6" fill="#FFFFFF" opacity="0.8"/>
+
+  <!-- Nose -->
+  <path d="M256 310 L245 330 L267 330 Z" fill="#FF00FF"/>
+
+  <!-- Mouth / Terminal cursor -->
+  <path d="M200 355 Q256 385 312 355" stroke="url(#greenGrad)" stroke-width="6" stroke-linecap="round" fill="none" filter="url(#glow)"/>
+
+  <!-- Terminal prompt symbol -->
+  <text x="256" y="380" text-anchor="middle" fill="#00FF88" font-family="monospace" font-size="24" font-weight="bold" filter="url(#glow)">_</text>
+
+  <!-- Whiskers -->
+  <line x1="100" y1="300" x2="160" y2="310" stroke="#00D9FF" stroke-width="3" opacity="0.6"/>
+  <line x1="100" y1="330" x2="160" y2="325" stroke="#00D9FF" stroke-width="3" opacity="0.6"/>
+  <line x1="412" y1="300" x2="352" y2="310" stroke="#FF00FF" stroke-width="3" opacity="0.6"/>
+  <line x1="412" y1="330" x2="352" y2="325" stroke="#FF00FF" stroke-width="3" opacity="0.6"/>
+</svg>
