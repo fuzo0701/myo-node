@@ -25,6 +25,7 @@ declare global {
 
 interface HybridTerminalProps {
   tabId: string | null | undefined
+  isActive?: boolean
 }
 
 interface ClaudeBlock {
@@ -36,7 +37,7 @@ interface ClaudeBlock {
 // Throttle interval for streaming updates (ms)
 const STREAMING_THROTTLE_MS = 16 // ~60fps
 
-export default function HybridTerminal({ tabId }: HybridTerminalProps) {
+export default function HybridTerminal({ tabId, isActive = true }: HybridTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalContainerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
@@ -78,6 +79,12 @@ export default function HybridTerminal({ tabId }: HybridTerminalProps) {
 
   // For tracking directory changes from prompt
   const lastDetectedCwd = useRef<string>('')
+
+  // Track isActive state in ref for use in callbacks
+  const isActiveRef = useRef(isActive)
+  useEffect(() => {
+    isActiveRef.current = isActive
+  }, [isActive])
 
   // Buffer for user input (save to history only on Enter)
   const userInputBuffer = useRef<string>('')
@@ -187,11 +194,16 @@ export default function HybridTerminal({ tabId }: HybridTerminalProps) {
     const cleanData = data.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '')
 
     // Match PowerShell prompt: "PS C:\path>" or CMD prompt: "C:\path>"
-    const match = cleanData.match(/(?:PS\s+)?([A-Za-z]:\\[^<>"|?\r\n]*?)>/)
+    // Use greedy match to get the full path before >
+    const match = cleanData.match(/(?:PS\s+)?([A-Za-z]:\\[^<>"|?\r\n]*)>/)
     if (match && match[1]) {
-      // Clean up the path
-      const path = match[1].trim()
-      // Validate it looks like a real path
+      // Clean up the path - remove trailing spaces
+      let path = match[1].trim()
+      // Remove trailing backslash for consistency (except for root like D:\)
+      if (path.length > 3 && path.endsWith('\\')) {
+        path = path.slice(0, -1)
+      }
+      // Validate it looks like a real path (at least drive letter and colon)
       if (/^[A-Za-z]:\\/.test(path)) {
         return path
       }
@@ -203,8 +215,8 @@ export default function HybridTerminal({ tabId }: HybridTerminalProps) {
     // Always write to xterm - terminal output should always be visible
     terminalRef.current?.write(data)
 
-    // Try to detect directory changes from prompt
-    if (tabId) {
+    // Try to detect directory changes from prompt (only for active tab)
+    if (tabId && isActiveRef.current) {
       const detectedPath = extractPathFromPrompt(data)
       if (detectedPath && detectedPath !== lastDetectedCwd.current) {
         lastDetectedCwd.current = detectedPath
@@ -283,9 +295,16 @@ export default function HybridTerminal({ tabId }: HybridTerminalProps) {
     }
   }, [])
 
-  // Initialize terminal
+  // Track if terminal is initialized
+  const isInitializedRef = useRef(false)
+  const resizeObserverRef = useRef<ResizeObserver | null>(null)
+
+  // Initialize terminal once when component mounts
   useEffect(() => {
     if (!terminalContainerRef.current || !tabId) return
+    if (isInitializedRef.current) return
+
+    isInitializedRef.current = true
 
     const terminal = new Terminal({
       fontFamily: theme.fontFamily,
@@ -305,62 +324,70 @@ export default function HybridTerminal({ tabId }: HybridTerminalProps) {
 
     terminal.loadAddon(fitAddon)
     terminal.loadAddon(webLinksAddon)
-    terminal.open(terminalContainerRef.current)
-    fitAddon.fit()
 
-    terminalRef.current = terminal
-    fitAddonRef.current = fitAddon
+    // Delay opening to ensure DOM is ready
+    const timerId = setTimeout(() => {
+      if (!terminalContainerRef.current) return
 
-    // Handle user input
-    terminal.onData(handleUserInput)
+      try {
+        terminal.open(terminalContainerRef.current)
+        fitAddon.fit()
+      } catch (e) {
+        console.error('Failed to open terminal:', e)
+        return
+      }
 
-    // Create PTY with tab's cwd
-    const initPty = async () => {
-      const { cols, rows } = terminal
-      const id = await window.terminal.create(cols, rows, tabCwd)
-      ptyIdRef.current = id
-      setPtyId(id)
+      terminalRef.current = terminal
+      fitAddonRef.current = fitAddon
 
-      // Store terminal ID in tab and get resolved cwd
-      if (tabId) {
-        setTerminalId(tabId, id)
+      // Handle user input
+      terminal.onData(handleUserInput)
 
-        // Get the resolved cwd from main process
+      // Create PTY with tab's cwd
+      const initPty = async () => {
+        const { cols, rows } = terminal
+        const id = await window.terminal.create(cols, rows, tabCwd)
+        ptyIdRef.current = id
+        setPtyId(id)
+
+        // Store terminal ID in tab
+        if (tabId) {
+          setTerminalId(tabId, id)
+        }
+
+        // Focus terminal after initialization
+        terminal.focus()
+      }
+
+      initPty()
+
+      // Handle resize
+      const resizeObserver = new ResizeObserver(() => {
         try {
-          const resolvedCwd = await window.terminal.getCwd(id)
-          if (resolvedCwd) {
-            updateTabCwd(tabId, resolvedCwd)
+          fitAddon.fit()
+          if (ptyIdRef.current !== null) {
+            const { cols, rows } = terminal
+            window.terminal.resize(ptyIdRef.current, cols, rows)
           }
         } catch (e) {
-          console.error('Failed to get cwd:', e)
+          // Ignore resize errors
         }
-      }
-
-      // Focus terminal after initialization
-      terminal.focus()
-    }
-
-    initPty()
-
-    // Handle resize - use ref for ptyId
-    const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit()
-      if (ptyIdRef.current !== null) {
-        const { cols, rows } = terminal
-        window.terminal.resize(ptyIdRef.current, cols, rows)
-      }
-    })
-    resizeObserver.observe(terminalContainerRef.current)
+      })
+      resizeObserver.observe(terminalContainerRef.current!)
+      resizeObserverRef.current = resizeObserver
+    }, 0)
 
     return () => {
-      resizeObserver.disconnect()
+      clearTimeout(timerId)
+      resizeObserverRef.current?.disconnect()
       terminal.dispose()
       if (ptyIdRef.current !== null) {
         window.terminal.kill(ptyIdRef.current)
         ptyIdRef.current = null
       }
+      isInitializedRef.current = false
     }
-  }, [tabId]) // Only re-run when tabId changes
+  }, [tabId]) // Only re-run when tabId changes (component remount)
 
   // Handle PTY data
   useEffect(() => {
@@ -399,25 +426,29 @@ export default function HybridTerminal({ tabId }: HybridTerminalProps) {
     }
   }, [theme])
 
-  // Focus terminal when tab becomes active
+  // Focus terminal when tab becomes active and refit
   useEffect(() => {
-    if (terminalRef.current && tabId) {
+    if (terminalRef.current && tabId && isActive) {
       // Small delay to ensure DOM is ready
       const timer = setTimeout(() => {
+        // Refit in case window was resized while hidden
+        fitAddonRef.current?.fit()
         terminalRef.current?.focus()
       }, 50)
       return () => clearTimeout(timer)
     }
-  }, [tabId])
+  }, [tabId, isActive])
 
   // Listen for focus-terminal event (e.g., when closing command palette)
   useEffect(() => {
     const handleFocusTerminal = () => {
-      terminalRef.current?.focus()
+      if (isActive) {
+        terminalRef.current?.focus()
+      }
     }
     window.addEventListener('focus-terminal', handleFocusTerminal)
     return () => window.removeEventListener('focus-terminal', handleFocusTerminal)
-  }, [])
+  }, [isActive])
 
   // Memoize claude blocks rendering
   const claudeBlocksContent = useMemo(() => {
@@ -441,7 +472,7 @@ export default function HybridTerminal({ tabId }: HybridTerminalProps) {
   }
 
   return (
-    <div ref={containerRef} className="hybrid-terminal">
+    <div ref={containerRef} className={`hybrid-terminal ${isActive ? '' : 'hidden'}`}>
       {/* Claude rendered output */}
       {claudeBlocksContent}
 

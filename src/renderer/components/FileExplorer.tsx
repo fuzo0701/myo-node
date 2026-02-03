@@ -232,12 +232,18 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
     onFileSelect?.(path)
   }, [onFileSelect])
 
+  // Normalize path for comparison (handle Windows/Unix differences)
+  const normalizePath = useCallback((p: string): string => {
+    return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+  }, [])
+
   // Load directory when cwd changes or on mount
   useEffect(() => {
     if (isOpen) {
       // Use provided cwd or fall back to process cwd
       if (currentCwd && currentCwd !== '~') {
-        if (currentCwd !== rootPath) {
+        // Compare normalized paths to avoid reload on format differences
+        if (normalizePath(currentCwd) !== normalizePath(rootPath)) {
           loadDirectory(currentCwd)
         }
       } else if (!rootPath) {
@@ -249,7 +255,7 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
         })
       }
     }
-  }, [isOpen, currentCwd, rootPath, loadDirectory])
+  }, [isOpen, currentCwd, rootPath, loadDirectory, normalizePath])
 
   // Watch for file system changes
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)

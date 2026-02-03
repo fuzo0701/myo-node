@@ -182,7 +182,7 @@ export default function App() {
       <TabBar
         tabs={tabs}
         activeTabId={activeTabId}
-        onAddTab={addTab}
+        onAddTab={() => addTab()}
         onRemoveTab={removeTab}
         onSelectTab={setActiveTab}
         onReorderTabs={reorderTabs}
@@ -214,11 +214,19 @@ export default function App() {
         />
         <main className="terminal-container">
           {splitMode === 'none' ? (
-            <HybridTerminal tabId={activeTabId} />
+            // Render all terminals, but only show the active one
+            // This preserves terminal content when switching tabs
+            tabs.map(tab => (
+              <HybridTerminal
+                key={tab.id}
+                tabId={tab.id}
+                isActive={tab.id === activeTabId}
+              />
+            ))
           ) : (
             <SplitPane direction={splitMode}>
-              <HybridTerminal tabId={tabs[0]?.id} />
-              <HybridTerminal tabId={tabs[1]?.id ?? tabs[0]?.id} />
+              <HybridTerminal tabId={tabs[0]?.id} isActive={true} />
+              <HybridTerminal tabId={tabs[1]?.id ?? tabs[0]?.id} isActive={true} />
             </SplitPane>
           )}
         </main>
