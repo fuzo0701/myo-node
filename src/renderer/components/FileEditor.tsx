@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import ReactMarkdown from 'react-markdown'
 
 interface FileEditorProps {
   isOpen: boolean
@@ -27,6 +28,24 @@ const Icons = {
       <polyline points="14 2 14 8 20 8" />
     </svg>
   ),
+  edit: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  ),
+  preview: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+}
+
+// Check if file is markdown
+function isMarkdownFile(filePath: string): boolean {
+  const ext = filePath.split('.').pop()?.toLowerCase()
+  return ext === 'md' || ext === 'markdown'
 }
 
 // Get language from file extension
@@ -67,9 +86,11 @@ export default function FileEditor({ isOpen, filePath, onClose }: FileEditorProp
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isEditMode, setIsEditMode] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const isModified = content !== originalContent
+  const isMarkdown = filePath ? isMarkdownFile(filePath) : false
 
   // Load file content
   useEffect(() => {
@@ -77,19 +98,23 @@ export default function FileEditor({ isOpen, filePath, onClose }: FileEditorProp
       setContent('')
       setOriginalContent('')
       setError(null)
+      setIsEditMode(false)
       return
     }
+
+    // Reset edit mode for new file (show preview for markdown)
+    setIsEditMode(false)
 
     const loadFile = async () => {
       setLoading(true)
       setError(null)
       try {
         const fileContent = await window.fileSystem?.readFile(filePath)
-        if (fileContent !== undefined) {
+        if (fileContent !== null && fileContent !== undefined) {
           setContent(fileContent)
           setOriginalContent(fileContent)
         } else {
-          setError('Failed to load file')
+          setError('Failed to load file (binary or unsupported format)')
         }
       } catch (err) {
         setError(`Error: ${err}`)
@@ -167,6 +192,16 @@ export default function FileEditor({ isOpen, filePath, onClose }: FileEditorProp
           )}
         </div>
         <div className="file-editor-actions">
+          {isMarkdown && (
+            <button
+              className={`editor-action-btn ${isEditMode ? '' : 'active'}`}
+              onClick={() => setIsEditMode(!isEditMode)}
+              title={isEditMode ? 'Preview' : 'Edit'}
+            >
+              {isEditMode ? Icons.preview : Icons.edit}
+              <span>{isEditMode ? 'Preview' : 'Edit'}</span>
+            </button>
+          )}
           <button
             className={`editor-action-btn ${isModified ? 'can-save' : ''}`}
             onClick={handleSave}
@@ -195,10 +230,14 @@ export default function FileEditor({ isOpen, filePath, onClose }: FileEditorProp
           <div className="editor-loading">Loading...</div>
         ) : error ? (
           <div className="editor-error">{error}</div>
-        ) : !filePath || content === null ? (
+        ) : !filePath ? (
           <div className="editor-empty">
             <div className="empty-icon">{Icons.file}</div>
             <div className="empty-text">Select a file from the explorer to edit</div>
+          </div>
+        ) : isMarkdown && !isEditMode ? (
+          <div className="markdown-preview">
+            <ReactMarkdown>{content}</ReactMarkdown>
           </div>
         ) : (
           <div className="editor-wrapper">

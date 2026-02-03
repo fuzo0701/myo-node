@@ -615,30 +615,59 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
     }
   }, [contextMenu.isOpen, closeContextMenu])
 
-  // Normalize path for comparison (handle Windows/Unix differences)
+  // Normalize path for comparison
   const normalizePath = useCallback((p: string): string => {
     return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   }, [])
 
-  // Load directory when cwd changes or on mount
+  // Check if path is a home directory (should not auto-navigate to)
+  const isHomePath = useCallback((p: string): boolean => {
+    const normalized = normalizePath(p)
+    // Windows: c:/users/username, Unix: /home/username or /users/username
+    return /^[a-z]:\/users\/[^/]+$/.test(normalized) ||
+           /^\/home\/[^/]+$/.test(normalized) ||
+           /^\/users\/[^/]+$/.test(normalized)
+  }, [normalizePath])
+
+  // Track last valid cwd to prevent unwanted resets
+  const lastValidCwd = useRef<string | null>(null)
+
+  // Load directory when currentCwd changes (sync with terminal)
   useEffect(() => {
-    if (isOpen) {
-      // Use provided cwd or fall back to process cwd
-      if (currentCwd && currentCwd !== '~') {
-        // Compare normalized paths to avoid reload on format differences
-        if (normalizePath(currentCwd) !== normalizePath(rootPath)) {
-          loadDirectory(currentCwd)
+    if (!isOpen) return
+    if (!currentCwd || currentCwd === '~') return
+
+    const normalizedCwd = normalizePath(currentCwd)
+    const normalizedRoot = rootPath ? normalizePath(rootPath) : ''
+
+    // Skip if same as current rootPath
+    if (normalizedCwd === normalizedRoot) return
+
+    // Skip if navigating to home directory while we have a valid rootPath
+    // (This prevents unwanted resets when file selection triggers cwd change)
+    if (rootPath && isHomePath(currentCwd)) return
+
+    // Update if it's a meaningful directory change
+    lastValidCwd.current = currentCwd
+    loadDirectory(currentCwd)
+  }, [isOpen, currentCwd, rootPath, loadDirectory, normalizePath, isHomePath])
+
+  // Initial load when explorer opens with no rootPath
+  useEffect(() => {
+    if (!isOpen || rootPath) return
+
+    if (currentCwd && currentCwd !== '~') {
+      lastValidCwd.current = currentCwd
+      loadDirectory(currentCwd)
+    } else {
+      window.fileSystem?.getCurrentDirectory().then((cwd: string) => {
+        if (cwd) {
+          lastValidCwd.current = cwd
+          loadDirectory(cwd)
         }
-      } else if (!rootPath) {
-        // Fall back to getting cwd from main process
-        window.fileSystem?.getCurrentDirectory().then((cwd: string) => {
-          if (cwd) {
-            loadDirectory(cwd)
-          }
-        })
-      }
+      })
     }
-  }, [isOpen, currentCwd, rootPath, loadDirectory, normalizePath])
+  }, [isOpen, rootPath, currentCwd, loadDirectory])
 
   // Watch for file system changes
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -715,7 +744,20 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
           </button>
         </div>
       </div>
-      <div className="file-explorer-path">
+      <div
+        className="file-explorer-path clickable"
+        onClick={() => {
+          // Navigate to terminal's current directory
+          if (currentCwd && currentCwd !== '~') {
+            loadDirectory(currentCwd)
+          } else {
+            window.fileSystem?.getCurrentDirectory().then((cwd: string) => {
+              if (cwd) loadDirectory(cwd)
+            })
+          }
+        }}
+        title="Go to terminal directory"
+      >
         <span className="path-icon">{Icons.home}</span>
         <span className="path-text">{rootPath.split(/[/\\]/).pop() || rootPath}</span>
       </div>

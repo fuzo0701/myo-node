@@ -53,28 +53,39 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
   const currentTab = tabs.find(t => t.id === tabId)
   const tabCwd = currentTab?.cwd || '~'
 
-  // Claude detection state
+  // Claude detection state - use refs to avoid closure issues
   const [isClaudeActive, setIsClaudeActive] = useState(false)
+  const isClaudeActiveRef = useRef(false)
   const [claudeBlocks, setClaudeBlocks] = useState<ClaudeBlock[]>([])
   const currentBlockRef = useRef<string>('')
   const conversationIdRef = useRef<string | null>(null)
-  const claudeOutputBuffer = useRef<string>('')
 
   // Streaming optimization refs
   const pendingUpdateRef = useRef<string | null>(null)
   const rafIdRef = useRef<number | null>(null)
   const lastUpdateTimeRef = useRef<number>(0)
 
+  // Debounce timer for detecting end of Claude response
+  const claudeEndTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const CLAUDE_END_DEBOUNCE_MS = 1000 // Wait 1 second of silence to consider response ended
+
   // Patterns to detect Claude Code - memoized
-  // More specific patterns to avoid matching file/folder names
+  // More specific patterns to detect Claude Code CLI output
   const claudePatterns = useMemo(() => [
     /Claude Code/i,           // Full "Claude Code" text
-    /╭─.*Claude/i,            // Claude box drawing with Claude text
-    /╰─.*─╯/,                 // Claude's closing box
-    /Tool Result/i,
+    /claude\.ai/i,            // Claude AI reference
+    /╭─/,                     // Claude box drawing start
+    /╰─/,                     // Claude box drawing end
+    /│\s/,                    // Claude box content line
+    /⏺\s*(?:Read|Write|Edit|Bash|Glob|Grep|Search|Task)/i,  // Tool indicators
+    /●\s*(?:Read|Write|Edit|Bash|Glob|Grep|Search|Task)/i,  // Alternative tool indicators
     /\[Reading\]/i,           // Claude's reading indicator
     /\[Writing\]/i,           // Claude's writing indicator
     /\[Searching\]/i,         // Claude's searching indicator
+    /Tool Result/i,
+    /Anthropic/i,             // Company name
+    /thinking\.\.\./i,        // Thinking indicator
+    /Co-Authored-By:.*Claude/i, // Git commit pattern
   ], [])
 
   // For tracking directory changes from prompt
@@ -85,6 +96,16 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
   useEffect(() => {
     isActiveRef.current = isActive
   }, [isActive])
+
+  // Store functions in refs to avoid closure issues
+  const createConversationRef = useRef(createConversation)
+  const addMessageRef = useRef(addMessage)
+  const tabCwdRef = useRef(tabCwd)
+  useEffect(() => {
+    createConversationRef.current = createConversation
+    addMessageRef.current = addMessage
+    tabCwdRef.current = tabCwd
+  }, [createConversation, addMessage, tabCwd])
 
   // Buffer for user input (save to history only on Enter)
   const userInputBuffer = useRef<string>('')
@@ -224,57 +245,74 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       }
     }
 
-    // Terminal-only mode: no Claude processing
-    if (renderMode === 'terminal') {
-      return
+    // Detect Claude output (for history and visual rendering)
+    const isClaudeData = detectClaudeOutput(data)
+
+    if (isClaudeData && !isClaudeActiveRef.current) {
+      isClaudeActiveRef.current = true
+      setIsClaudeActive(true)
+      console.log('[History] Claude detected')
+
+      // Create conversation if not exists
+      if (!conversationIdRef.current) {
+        const newId = createConversationRef.current(tabCwdRef.current)
+        conversationIdRef.current = newId
+        console.log('[History] Auto-created conversation:', newId)
+      }
     }
 
-    // Hybrid mode: also process Claude output for enhanced rendering
-    if (renderMode === 'hybrid') {
-      // Detect if this looks like Claude output
-      const isClaudeData = detectClaudeOutput(data)
+    // Visual rendering for Claude output (hybrid/rendered mode only)
+    if ((renderMode === 'hybrid' || renderMode === 'rendered') && isClaudeActiveRef.current) {
+      currentBlockRef.current += data
+      scheduleBlockUpdate(stripAnsi(currentBlockRef.current), true)
 
-      if (isClaudeData && !isClaudeActive) {
-        setIsClaudeActive(true)
-        if (!conversationIdRef.current) {
-          conversationIdRef.current = createConversation('~')
-        }
+      // Reset debounce timer
+      if (claudeEndTimerRef.current) {
+        clearTimeout(claudeEndTimerRef.current)
       }
 
-      if (isClaudeActive && isClaudeData) {
-        // Buffer Claude output for rendering
-        claudeOutputBuffer.current += data
-        currentBlockRef.current += data
-
-        // Schedule throttled update (strip ANSI codes for clean rendering)
-        scheduleBlockUpdate(stripAnsi(currentBlockRef.current), true)
-      }
-
-      // Detect end of Claude response (prompt returns)
-      if (isClaudeActive && (data.includes('❯') || data.includes('$'))) {
+      claudeEndTimerRef.current = setTimeout(() => {
         finalizeBlock()
+        isClaudeActiveRef.current = false
         setIsClaudeActive(false)
-
-        // Save to history
-        if (conversationIdRef.current && claudeOutputBuffer.current) {
-          addMessage(conversationIdRef.current, 'assistant', claudeOutputBuffer.current)
-          claudeOutputBuffer.current = ''
-        }
-      }
+        claudeEndTimerRef.current = null
+      }, CLAUDE_END_DEBOUNCE_MS)
     }
-  }, [tabId, extractPathFromPrompt, updateTabCwd, isClaudeActive, renderMode, detectClaudeOutput, createConversation, addMessage, scheduleBlockUpdate, finalizeBlock, stripAnsi])
+  }, [tabId, tabCwd, extractPathFromPrompt, updateTabCwd, renderMode, detectClaudeOutput, scheduleBlockUpdate, finalizeBlock, stripAnsi])
 
-  // User input handler - uses ref to always have current ptyId
+  // User input handler - uses refs to always have current values
   const handleUserInput = useCallback((data: string) => {
     if (ptyIdRef.current !== null) {
       window.terminal.write(ptyIdRef.current, data)
 
       // Buffer user input, save to history only on Enter
       if (data === '\r' || data === '\n') {
-        // Enter pressed - save buffered input to history
-        if (conversationIdRef.current && userInputBuffer.current.trim()) {
-          addMessage(conversationIdRef.current, 'user', userInputBuffer.current.trim())
+        // Enter pressed
+        const input = userInputBuffer.current.trim()
+
+        if (input) {
+          // Detect if user is starting a Claude session
+          const isClaudeCommand = input.match(/^claude\b/i)
+
+          if (isClaudeCommand) {
+            // Create new conversation for this Claude session
+            const newId = createConversationRef.current(tabCwdRef.current)
+            conversationIdRef.current = newId
+            addMessageRef.current(conversationIdRef.current, 'user', input)
+            console.log('[History] Started Claude session:', conversationIdRef.current)
+          } else if (conversationIdRef.current) {
+            // Save follow-up input to existing conversation
+            addMessageRef.current(conversationIdRef.current, 'user', input)
+            console.log('[History] Saved input:', input)
+          } else if (isClaudeActiveRef.current) {
+            // Claude is active but no conversation yet - create one
+            const newId = createConversationRef.current(tabCwdRef.current)
+            conversationIdRef.current = newId
+            addMessageRef.current(conversationIdRef.current, 'user', input)
+            console.log('[History] Created conversation from Claude session:', input)
+          }
         }
+
         userInputBuffer.current = ''
       } else if (data === '\x7f' || data === '\b') {
         // Backspace - remove last character from buffer
@@ -284,13 +322,16 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
         userInputBuffer.current += data
       }
     }
-  }, [addMessage])
+  }, []) // No dependencies - uses refs
 
-  // Cleanup RAF on unmount
+  // Cleanup RAF and timers on unmount
   useEffect(() => {
     return () => {
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current)
+      }
+      if (claudeEndTimerRef.current !== null) {
+        clearTimeout(claudeEndTimerRef.current)
       }
     }
   }, [])
@@ -320,7 +361,13 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     })
 
     const fitAddon = new FitAddon()
-    const webLinksAddon = new WebLinksAddon()
+    const webLinksAddon = new WebLinksAddon((event, uri) => {
+      // Open external URL with Ctrl+click
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault()
+        window.shell?.openExternal(uri)
+      }
+    })
 
     terminal.loadAddon(fitAddon)
     terminal.loadAddon(webLinksAddon)

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, clipboard } from 'electron'
+import { app, BrowserWindow, ipcMain, clipboard, dialog } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as pty from 'node-pty'
@@ -457,6 +457,35 @@ Add-Type -AssemblyName System.Windows.Forms
     return false
   } catch (error) {
     console.error('Failed to check clipboard for files:', error)
+    return false
+  }
+})
+
+// Dialog handlers
+ipcMain.handle('dialog:saveFile', async (_, options: {
+  title?: string
+  defaultPath?: string
+  filters?: { name: string; extensions: string[] }[]
+}) => {
+  if (!mainWindow) return null
+
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: options.title || 'Save File',
+    defaultPath: options.defaultPath,
+    filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
+  })
+
+  return result.canceled ? null : result.filePath
+})
+
+// Shell - open external URLs
+ipcMain.handle('shell:openExternal', async (_, url: string) => {
+  try {
+    const { shell } = await import('electron')
+    await shell.openExternal(url)
+    return true
+  } catch (error) {
+    console.error('Failed to open external URL:', error)
     return false
   }
 })

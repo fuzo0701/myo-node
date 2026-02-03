@@ -34,7 +34,7 @@ cd myo-node
 # Install dependencies
 npm install
 ```
-
+d
 ## Development
 
 ```bash

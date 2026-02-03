@@ -39,6 +39,14 @@ export type ClipboardAPI = {
   hasFiles: () => Promise<boolean>
 }
 
+export type DialogAPI = {
+  saveFile: (options: {
+    title?: string
+    defaultPath?: string
+    filters?: { name: string; extensions: string[] }[]
+  }) => Promise<string | null>
+}
+
 contextBridge.exposeInMainWorld('terminal', {
   create: (cols: number, rows: number, cwd?: string) => ipcRenderer.invoke('terminal:create', cols, rows, cwd),
   write: (id: number, data: string) => ipcRenderer.send('terminal:write', id, data),
@@ -90,3 +98,11 @@ contextBridge.exposeInMainWorld('clipboard', {
   readFiles: () => ipcRenderer.invoke('clipboard:readFiles'),
   hasFiles: () => ipcRenderer.invoke('clipboard:hasFiles'),
 } as ClipboardAPI)
+
+contextBridge.exposeInMainWorld('dialog', {
+  saveFile: (options) => ipcRenderer.invoke('dialog:saveFile', options),
+} as DialogAPI)
+
+contextBridge.exposeInMainWorld('shell', {
+  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+})

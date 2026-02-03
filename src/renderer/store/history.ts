@@ -15,12 +15,18 @@ export interface Conversation {
   createdAt: number
   updatedAt: number
   cwd: string
+  favorite?: boolean
+  tags?: string[]
 }
+
+type FilterMode = 'all' | 'favorites'
 
 interface HistoryStore {
   conversations: Conversation[]
   activeConversationId: string | null
   searchQuery: string
+  filterMode: FilterMode
+  tagFilter: string | null
 
   // Actions
   createConversation: (cwd: string) => string
@@ -30,6 +36,12 @@ interface HistoryStore {
   clearAllConversations: () => void
   setActiveConversation: (id: string | null) => void
   setSearchQuery: (query: string) => void
+  setFilterMode: (mode: FilterMode) => void
+  setTagFilter: (tag: string | null) => void
+  toggleFavorite: (id: string) => void
+  addTag: (id: string, tag: string) => void
+  removeTag: (id: string, tag: string) => void
+  getAllTags: () => string[]
   getFilteredConversations: () => Conversation[]
   getConversation: (id: string) => Conversation | undefined
 }
@@ -49,6 +61,8 @@ export const useHistoryStore = create<HistoryStore>()(
       conversations: [],
       activeConversationId: null,
       searchQuery: '',
+      filterMode: 'all' as FilterMode,
+      tagFilter: null,
 
       createConversation: (cwd: string) => {
         const id = generateId()
@@ -128,14 +142,78 @@ export const useHistoryStore = create<HistoryStore>()(
         set({ searchQuery: query })
       },
 
+      setFilterMode: (mode) => {
+        set({ filterMode: mode })
+      },
+
+      setTagFilter: (tag) => {
+        set({ tagFilter: tag })
+      },
+
+      toggleFavorite: (id) => {
+        set((state) => ({
+          conversations: state.conversations.map((conv) =>
+            conv.id === id ? { ...conv, favorite: !conv.favorite, updatedAt: Date.now() } : conv
+          ),
+        }))
+      },
+
+      addTag: (id, tag) => {
+        const trimmedTag = tag.trim().toLowerCase()
+        if (!trimmedTag) return
+        set((state) => ({
+          conversations: state.conversations.map((conv) => {
+            if (conv.id !== id) return conv
+            const tags = conv.tags || []
+            if (tags.includes(trimmedTag)) return conv
+            return { ...conv, tags: [...tags, trimmedTag], updatedAt: Date.now() }
+          }),
+        }))
+      },
+
+      removeTag: (id, tag) => {
+        set((state) => ({
+          conversations: state.conversations.map((conv) => {
+            if (conv.id !== id) return conv
+            const tags = (conv.tags || []).filter((t) => t !== tag)
+            return { ...conv, tags, updatedAt: Date.now() }
+          }),
+        }))
+      },
+
+      getAllTags: () => {
+        const { conversations } = get()
+        const tagSet = new Set<string>()
+        conversations.forEach((conv) => {
+          conv.tags?.forEach((tag) => tagSet.add(tag))
+        })
+        return Array.from(tagSet).sort()
+      },
+
       getFilteredConversations: () => {
-        const { conversations, searchQuery } = get()
-        if (!searchQuery.trim()) return conversations
-        const query = searchQuery.toLowerCase()
-        return conversations.filter((conv) =>
-          conv.title.toLowerCase().includes(query) ||
-          conv.messages.some((msg) => msg.content.toLowerCase().includes(query))
-        )
+        const { conversations, searchQuery, filterMode, tagFilter } = get()
+        let filtered = conversations
+
+        // Filter by favorites
+        if (filterMode === 'favorites') {
+          filtered = filtered.filter((conv) => conv.favorite)
+        }
+
+        // Filter by tag
+        if (tagFilter) {
+          filtered = filtered.filter((conv) => conv.tags?.includes(tagFilter))
+        }
+
+        // Filter by search query
+        if (searchQuery.trim()) {
+          const query = searchQuery.toLowerCase()
+          filtered = filtered.filter((conv) =>
+            conv.title.toLowerCase().includes(query) ||
+            conv.messages.some((msg) => msg.content.toLowerCase().includes(query))
+          )
+        }
+
+        return filtered
       },
 
       getConversation: (id) => {

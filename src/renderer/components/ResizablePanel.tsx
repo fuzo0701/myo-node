@@ -78,13 +78,14 @@ export default function ResizablePanel({
     }
   }, [handleMouseMove, handleMouseUp])
 
-  if (!isOpen) return null
-
   return (
     <div
       ref={panelRef}
       className={`resizable-panel resizable-panel-${side}`}
-      style={{ width: width ?? defaultWidth ?? minWidth }}
+      style={{
+        width: isOpen ? (width ?? defaultWidth ?? minWidth) : 0,
+        display: isOpen ? undefined : 'none',
+      }}
     >
       <div className="resizable-panel-content">
         {children}

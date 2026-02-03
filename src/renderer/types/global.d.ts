@@ -36,5 +36,15 @@ declare global {
       readFiles: () => Promise<string[]>
       hasFiles: () => Promise<boolean>
     }
+    dialog: {
+      saveFile: (options: {
+        title?: string
+        defaultPath?: string
+        filters?: { name: string; extensions: string[] }[]
+      }) => Promise<string | null>
+    }
+    shell: {
+      openExternal: (url: string) => Promise<boolean>
+    }
   }
 }
