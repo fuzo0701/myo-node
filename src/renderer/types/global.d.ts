@@ -20,6 +20,21 @@ declare global {
       getCurrentDirectory: () => Promise<string>
       readFile: (path: string) => Promise<string | null>
       writeFile: (path: string, content: string) => Promise<boolean>
+      watch: (path: string) => Promise<boolean>
+      unwatch: (path: string) => Promise<boolean>
+      onFsChange: (callback: (dirPath: string, eventType: string, filename: string) => void) => () => void
+      copyFile: (src: string, dest: string) => Promise<boolean>
+      copyDirectory: (src: string, dest: string) => Promise<boolean>
+      exists: (path: string) => Promise<boolean>
+      stat: (path: string) => Promise<{ isDirectory: boolean; isFile: boolean; size: number; mtime: string } | null>
+      createDirectory: (path: string) => Promise<boolean>
+      rename: (oldPath: string, newPath: string) => Promise<boolean>
+      delete: (path: string) => Promise<boolean>
+    }
+    clipboard: {
+      writeFiles: (paths: string[]) => Promise<boolean>
+      readFiles: () => Promise<string[]>
+      hasFiles: () => Promise<boolean>
     }
   }
 }

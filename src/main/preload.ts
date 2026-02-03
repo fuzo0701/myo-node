@@ -24,6 +24,19 @@ export type FileSystemAPI = {
   watch: (path: string) => Promise<boolean>
   unwatch: (path: string) => Promise<boolean>
   onFsChange: (callback: (dirPath: string, eventType: string, filename: string) => void) => () => void
+  copyFile: (src: string, dest: string) => Promise<boolean>
+  copyDirectory: (src: string, dest: string) => Promise<boolean>
+  exists: (path: string) => Promise<boolean>
+  stat: (path: string) => Promise<{ isDirectory: boolean; isFile: boolean; size: number; mtime: string } | null>
+  createDirectory: (path: string) => Promise<boolean>
+  rename: (oldPath: string, newPath: string) => Promise<boolean>
+  delete: (path: string) => Promise<boolean>
+}
+
+export type ClipboardAPI = {
+  writeFiles: (paths: string[]) => Promise<boolean>
+  readFiles: () => Promise<string[]>
+  hasFiles: () => Promise<boolean>
 }
 
 contextBridge.exposeInMainWorld('terminal', {
@@ -63,4 +76,17 @@ contextBridge.exposeInMainWorld('fileSystem', {
     ipcRenderer.on('fs:changed', handler)
     return () => ipcRenderer.removeListener('fs:changed', handler)
   },
+  copyFile: (src: string, dest: string) => ipcRenderer.invoke('fs:copyFile', src, dest),
+  copyDirectory: (src: string, dest: string) => ipcRenderer.invoke('fs:copyDirectory', src, dest),
+  exists: (path: string) => ipcRenderer.invoke('fs:exists', path),
+  stat: (path: string) => ipcRenderer.invoke('fs:stat', path),
+  createDirectory: (path: string) => ipcRenderer.invoke('fs:createDirectory', path),
+  rename: (oldPath: string, newPath: string) => ipcRenderer.invoke('fs:rename', oldPath, newPath),
+  delete: (path: string) => ipcRenderer.invoke('fs:delete', path),
 } as FileSystemAPI)
+
+contextBridge.exposeInMainWorld('clipboard', {
+  writeFiles: (paths: string[]) => ipcRenderer.invoke('clipboard:writeFiles', paths),
+  readFiles: () => ipcRenderer.invoke('clipboard:readFiles'),
+  hasFiles: () => ipcRenderer.invoke('clipboard:hasFiles'),
+} as ClipboardAPI)

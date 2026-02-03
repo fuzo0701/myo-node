@@ -195,7 +195,7 @@ export default function FileEditor({ isOpen, filePath, onClose }: FileEditorProp
           <div className="editor-loading">Loading...</div>
         ) : error ? (
           <div className="editor-error">{error}</div>
-        ) : !filePath ? (
+        ) : !filePath || content === null ? (
           <div className="editor-empty">
             <div className="empty-icon">{Icons.file}</div>
             <div className="empty-text">Select a file from the explorer to edit</div>
@@ -203,7 +203,7 @@ export default function FileEditor({ isOpen, filePath, onClose }: FileEditorProp
         ) : (
           <div className="editor-wrapper">
             <div className="line-numbers">
-              {content.split('\n').map((_, i) => (
+              {(content || '').split('\n').map((_, i) => (
                 <div key={i} className="line-number">{i + 1}</div>
               ))}
             </div>
