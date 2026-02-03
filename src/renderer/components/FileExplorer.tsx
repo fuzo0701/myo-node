@@ -241,10 +241,12 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
   const explorerRef = useRef<HTMLDivElement>(null)
 
   const loadDirectory = useCallback(async (dirPath: string) => {
+    console.log('[FileExplorer] loadDirectory called with:', dirPath)
     setLoading(true)
     try {
       // Use Electron IPC to read directory
       const entries = await window.fileSystem?.readDirectory(dirPath)
+      console.log('[FileExplorer] entries:', entries?.length, entries)
       if (entries) {
         const nodes: FileNode[] = entries
           .filter((entry: { name: string }) => !entry.name.startsWith('.'))
@@ -620,15 +622,6 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
     return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   }, [])
 
-  // Check if path is a home directory (should not auto-navigate to)
-  const isHomePath = useCallback((p: string): boolean => {
-    const normalized = normalizePath(p)
-    // Windows: c:/users/username, Unix: /home/username or /users/username
-    return /^[a-z]:\/users\/[^/]+$/.test(normalized) ||
-           /^\/home\/[^/]+$/.test(normalized) ||
-           /^\/users\/[^/]+$/.test(normalized)
-  }, [normalizePath])
-
   // Track last valid cwd to prevent unwanted resets
   const lastValidCwd = useRef<string | null>(null)
 
@@ -643,14 +636,10 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
     // Skip if same as current rootPath
     if (normalizedCwd === normalizedRoot) return
 
-    // Skip if navigating to home directory while we have a valid rootPath
-    // (This prevents unwanted resets when file selection triggers cwd change)
-    if (rootPath && isHomePath(currentCwd)) return
-
-    // Update if it's a meaningful directory change
+    // Update directory
     lastValidCwd.current = currentCwd
     loadDirectory(currentCwd)
-  }, [isOpen, currentCwd, rootPath, loadDirectory, normalizePath, isHomePath])
+  }, [isOpen, currentCwd, rootPath, loadDirectory, normalizePath])
 
   // Initial load when explorer opens with no rootPath
   useEffect(() => {

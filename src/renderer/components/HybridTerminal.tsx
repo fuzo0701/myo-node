@@ -47,7 +47,7 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
   const theme = useThemeStore((state) => state.currentTheme)
   const renderMode = useSettingsStore((state) => state.renderMode)
   const { createConversation, addMessage } = useHistoryStore()
-  const { tabs, setTerminalId, updateTabCwd } = useTabStore()
+  const { tabs, setTerminalId, updateTabCwd, updateTabTitle } = useTabStore()
 
   // Get current tab's cwd
   const currentTab = tabs.find(t => t.id === tabId)
@@ -211,21 +211,57 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
 
   // Extract Windows path from terminal output (PowerShell/CMD prompt)
   const extractPathFromPrompt = useCallback((data: string): string | null => {
-    // Remove ANSI escape codes
-    const cleanData = data.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '')
+    // Skip if Claude is active - don't change directory based on Claude output
+    if (isClaudeActiveRef.current) {
+      return null
+    }
 
-    // Match PowerShell prompt: "PS C:\path>" or CMD prompt: "C:\path>"
-    // Use greedy match to get the full path before >
-    const match = cleanData.match(/(?:PS\s+)?([A-Za-z]:\\[^<>"|?\r\n]*)>/)
-    if (match && match[1]) {
+    // Remove ANSI escape codes
+    const cleanData = data.replace(/\x1B\[[0-9;?]*[A-Za-z]/g, '')
+
+    // Find ALL prompts and use the LAST one (most recent directory)
+    // Prompt must end with > followed by end of line, space, or nothing (ready for input)
+    // PowerShell format: PS C:\Users\user>
+    // CMD format: C:\Users\user>
+    const psMatches = [...cleanData.matchAll(/PS\s+([A-Za-z]:[\\\/][^\r\n>]*)>(?:\s*$|\r|\n)/g)]
+    const cmdMatches = [...cleanData.matchAll(/^([A-Za-z]:\\[^\r\n>]*)>(?:\s*$|\r|\n)/gm)]
+
+    // Get the last match from either pattern
+    let lastPath: string | null = null
+    let lastIndex = -1
+
+    for (const match of psMatches) {
+      if (match.index !== undefined && match.index > lastIndex) {
+        lastIndex = match.index
+        lastPath = match[1]
+      }
+    }
+
+    for (const match of cmdMatches) {
+      if (match.index !== undefined && match.index > lastIndex) {
+        lastIndex = match.index
+        lastPath = match[1]
+      }
+    }
+
+    if (lastPath) {
       // Clean up the path - remove trailing spaces
-      let path = match[1].trim()
+      let path = lastPath.trim()
+      // Normalize path separators
+      path = path.replace(/\//g, '\\')
       // Remove trailing backslash for consistency (except for root like D:\)
       if (path.length > 3 && path.endsWith('\\')) {
         path = path.slice(0, -1)
       }
-      // Validate it looks like a real path (at least drive letter and colon)
-      if (/^[A-Za-z]:\\/.test(path)) {
+      // Validate: must be a simple path without duplicates
+      const driveMatches = path.match(/[A-Za-z]:\\/g)
+      if (driveMatches && driveMatches.length > 1) {
+        console.log('[HybridTerminal] Corrupted path detected, skipping:', path)
+        return null
+      }
+      // Validate it looks like a real path
+      if (/^[A-Za-z]:\\?/.test(path)) {
+        console.log('[HybridTerminal] Detected path:', path)
         return path
       }
     }
@@ -238,6 +274,10 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
 
     // Try to detect directory changes from prompt (only for active tab)
     if (tabId && isActiveRef.current) {
+      // Debug: log raw data
+      if (data.includes('>')) {
+        console.log('[HybridTerminal] Raw data with prompt:', JSON.stringify(data))
+      }
       const detectedPath = extractPathFromPrompt(data)
       if (detectedPath && detectedPath !== lastDetectedCwd.current) {
         lastDetectedCwd.current = detectedPath
@@ -390,6 +430,40 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       // Handle user input
       terminal.onData(handleUserInput)
 
+      // Handle terminal title changes (OSC sequences)
+      terminal.onTitleChange((title) => {
+        if (tabId && title) {
+          // Clean up the title - extract meaningful part
+          // Windows terminal often sets title like "path && command"
+          // We want to show just the directory name or a clean title
+          let cleanTitle = title
+
+          // If title contains command chains (&&), extract the path part
+          if (title.includes('&&')) {
+            const parts = title.split('&&')
+            cleanTitle = parts[0].trim()
+          }
+
+          // Extract just the folder name if it's a full path
+          const pathMatch = cleanTitle.match(/([A-Za-z]:\\[^\s]+|\/[^\s]+)/)
+          if (pathMatch) {
+            const fullPath = pathMatch[1]
+            const folderName = fullPath.split(/[/\\]/).filter(Boolean).pop() || fullPath
+            cleanTitle = folderName
+          }
+
+          // Limit title length
+          if (cleanTitle.length > 30) {
+            cleanTitle = cleanTitle.substring(0, 27) + '...'
+          }
+
+          // Only update if we have a meaningful title
+          if (cleanTitle && cleanTitle.length > 0) {
+            updateTabTitle(tabId, cleanTitle)
+          }
+        }
+      })
+
       // Create PTY with tab's cwd
       const initPty = async () => {
         const { cols, rows } = terminal
@@ -400,6 +474,14 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
         // Store terminal ID in tab
         if (tabId) {
           setTerminalId(tabId, id)
+
+          // Get actual cwd from PTY and update tab
+          const actualCwd = await window.terminal.getCwd(id)
+          if (actualCwd) {
+            console.log('[HybridTerminal] PTY started in:', actualCwd)
+            updateTabCwd(tabId, actualCwd)
+            lastDetectedCwd.current = actualCwd
+          }
         }
 
         // Focus terminal after initialization

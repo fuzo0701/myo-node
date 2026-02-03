@@ -220,9 +220,20 @@ interface ThemeStore {
   currentTheme: Theme
   themeName: string
   themes: Record<string, Theme>
+  customThemes: Record<string, Theme>
   setTheme: (name: string) => void
   setFontSize: (size: number) => void
   setFontFamily: (family: string) => void
+  addCustomTheme: (theme: Theme) => string
+  updateCustomTheme: (key: string, theme: Theme) => void
+  deleteCustomTheme: (key: string) => void
+  duplicateTheme: (sourceKey: string, newName: string) => string
+}
+
+// Generate a unique key for custom themes
+const generateThemeKey = (name: string): string => {
+  const base = `custom_${name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`
+  return `${base}_${Date.now()}`
 }
 
 export const useThemeStore = create<ThemeStore>()(
@@ -231,9 +242,12 @@ export const useThemeStore = create<ThemeStore>()(
       currentTheme: defaultThemes.neon,
       themeName: 'neon',
       themes: defaultThemes,
+      customThemes: {},
 
       setTheme: (name) => {
-        const theme = get().themes[name]
+        const { themes, customThemes } = get()
+        const allThemes = { ...themes, ...customThemes }
+        const theme = allThemes[name]
         if (theme) {
           set({ themeName: name, currentTheme: theme })
         }
@@ -248,9 +262,65 @@ export const useThemeStore = create<ThemeStore>()(
         set((state) => ({
           currentTheme: { ...state.currentTheme, fontFamily: family },
         })),
+
+      addCustomTheme: (theme) => {
+        const key = generateThemeKey(theme.name)
+        set((state) => ({
+          customThemes: { ...state.customThemes, [key]: theme },
+        }))
+        return key
+      },
+
+      updateCustomTheme: (key, theme) => {
+        const { customThemes, themeName, currentTheme } = get()
+        if (customThemes[key]) {
+          const newCustomThemes = { ...customThemes, [key]: theme }
+          // If the current theme is being updated, also update currentTheme
+          if (themeName === key) {
+            set({ customThemes: newCustomThemes, currentTheme: theme })
+          } else {
+            set({ customThemes: newCustomThemes })
+          }
+        }
+      },
+
+      deleteCustomTheme: (key) => {
+        const { customThemes, themeName } = get()
+        if (customThemes[key]) {
+          const { [key]: _, ...rest } = customThemes
+          // If deleting the current theme, switch to default
+          if (themeName === key) {
+            set({
+              customThemes: rest,
+              themeName: 'neon',
+              currentTheme: defaultThemes.neon
+            })
+          } else {
+            set({ customThemes: rest })
+          }
+        }
+      },
+
+      duplicateTheme: (sourceKey, newName) => {
+        const { themes, customThemes } = get()
+        const allThemes = { ...themes, ...customThemes }
+        const sourceTheme = allThemes[sourceKey]
+        if (sourceTheme) {
+          const newTheme = { ...sourceTheme, name: newName }
+          const key = generateThemeKey(newName)
+          set((state) => ({
+            customThemes: { ...state.customThemes, [key]: newTheme },
+          }))
+          return key
+        }
+        return ''
+      },
     }),
     {
       name: 'myonode-theme',
     }
   )
 )
+
+// Export default themes for reference
+export { defaultThemes }
