@@ -94,3 +94,57 @@ Rendering features:
 - `dist/main/` - Compiled main process (CommonJS)
 - `dist/renderer/` - Compiled renderer (Vite bundle)
 - `release/` - Packaged distributables
+
+## GitLab
+
+**Repository**: https://gitlab.hyperledger.store/fuzo0701/myo-node
+
+**Access Token**: `glpat-xUptZKDJZgncpV4bvI4fIm86MQp1OjMH.01.0w077pc58`
+
+**Release Commands** (Generic Package Registry 사용):
+```bash
+# 1. Create tag and push
+git tag v0.x.0
+git push origin v0.x.0
+
+# 2. Create release via API
+curl --header "PRIVATE-TOKEN: <token>" \
+  --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"tag_name": "v0.x.0", "name": "v0.x.0", "description": "Release notes"}' \
+  "https://gitlab.hyperledger.store/api/v4/projects/fuzo0701%2Fmyo-node/releases"
+
+# 3. Upload files to Package Registry (uploads API는 private 프로젝트에서 404 발생)
+curl --header "PRIVATE-TOKEN: <token>" \
+  --upload-file "release/Myo-node Setup 0.x.0.exe" \
+  "https://gitlab.hyperledger.store/api/v4/projects/fuzo0701%2Fmyo-node/packages/generic/myo-node/0.x.0/Myo-node_Setup_0.x.0.exe"
+
+curl --header "PRIVATE-TOKEN: <token>" \
+  --upload-file "release/Myo-node 0.x.0.exe" \
+  "https://gitlab.hyperledger.store/api/v4/projects/fuzo0701%2Fmyo-node/packages/generic/myo-node/0.x.0/Myo-node_0.x.0_Portable.exe"
+
+# 4. Get package file IDs
+curl --header "PRIVATE-TOKEN: <token>" \
+  "https://gitlab.hyperledger.store/api/v4/projects/fuzo0701%2Fmyo-node/packages?package_name=myo-node&package_version=0.x.0"
+# Get package ID (e.g., 26), then:
+curl --header "PRIVATE-TOKEN: <token>" \
+  "https://gitlab.hyperledger.store/api/v4/projects/fuzo0701%2Fmyo-node/packages/<package_id>/package_files"
+# Note the file IDs (e.g., 27, 28)
+
+# 5. Add file links to release (using package_files URL)
+curl --header "PRIVATE-TOKEN: <token>" \
+  --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"name": "Myo-node Setup 0.x.0.exe", "url": "https://gitlab.hyperledger.store/fuzo0701/myo-node/-/package_files/<file_id>/download", "link_type": "package"}' \
+  "https://gitlab.hyperledger.store/api/v4/projects/fuzo0701%2Fmyo-node/releases/v0.x.0/assets/links"
+
+curl --header "PRIVATE-TOKEN: <token>" \
+  --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"name": "Myo-node 0.x.0 Portable.exe", "url": "https://gitlab.hyperledger.store/fuzo0701/myo-node/-/package_files/<file_id>/download", "link_type": "package"}' \
+  "https://gitlab.hyperledger.store/api/v4/projects/fuzo0701%2Fmyo-node/releases/v0.x.0/assets/links"
+```
+
+**Download URLs** (Package Registry):
+- Setup: `https://gitlab.hyperledger.store/fuzo0701/myo-node/-/package_files/<file_id>/download`
+- Portable: `https://gitlab.hyperledger.store/fuzo0701/myo-node/-/package_files/<file_id>/download`
