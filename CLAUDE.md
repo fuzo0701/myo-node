@@ -149,24 +149,27 @@ curl --header "PRIVATE-TOKEN: <token>" \
 - Setup: `https://gitlab.hyperledger.store/fuzo0701/myo-node/-/package_files/<file_id>/download`
 - Portable: `https://gitlab.hyperledger.store/fuzo0701/myo-node/-/package_files/<file_id>/download`
 
-**Cleanup - 이전 버전 삭제** (릴리스 완료 후):
+**Cleanup - 이전 버전 삭제** (릴리스 완료 후 필수):
+
+> **중요**: 새 버전 릴리스 후 반드시 이전 버전들을 삭제하세요. 최신 버전만 유지합니다.
+
 ```bash
 # 1. 이전 버전 패키지 목록 확인
 curl --header "PRIVATE-TOKEN: <token>" \
   "https://gitlab.hyperledger.store/api/v4/projects/fuzo0701%2Fmyo-node/packages?package_name=myo-node"
-# 삭제할 패키지 ID 확인 (e.g., 25 for v0.2.0)
+# 삭제할 패키지 ID 확인 (최신 버전 제외)
 
-# 2. 이전 버전 패키지 삭제
+# 2. 이전 버전 패키지 삭제 (모든 이전 버전에 대해 실행)
 curl --header "PRIVATE-TOKEN: <token>" \
   --request DELETE \
   "https://gitlab.hyperledger.store/api/v4/projects/fuzo0701%2Fmyo-node/packages/<old_package_id>"
 
-# 3. 이전 버전 릴리스 삭제 (선택)
+# 3. 이전 버전 릴리스 삭제
 curl --header "PRIVATE-TOKEN: <token>" \
   --request DELETE \
   "https://gitlab.hyperledger.store/api/v4/projects/fuzo0701%2Fmyo-node/releases/v0.x.0"
 
-# 4. 이전 버전 태그 삭제 (선택)
+# 4. 이전 버전 태그 삭제
 git push origin --delete v0.x.0
 git tag -d v0.x.0
 ```
