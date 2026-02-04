@@ -26,7 +26,7 @@ npm run dev
 # Build for production
 npm run build
 
-# Package for distribution
+# Package for distribution (release/ 폴더는 자동 정리됨, 수동 삭제 불필요)
 npm run package          # Current platform
 npm run package:win      # Windows (nsis, portable)
 npm run package:mac      # macOS (dmg, zip)
