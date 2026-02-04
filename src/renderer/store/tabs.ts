@@ -6,6 +6,7 @@ export interface Tab {
   id: string
   title: string
   cwd: string
+  explorerPath?: string  // 탭별 탐색기 경로 (수동 선택 시 설정)
   terminalId?: number
   claudeStatus: ClaudeStatus
 }
@@ -19,6 +20,7 @@ interface TabStore {
   setActiveTab: (id: string) => void
   updateTabTitle: (id: string, title: string) => void
   updateTabCwd: (id: string, cwd: string) => void
+  updateExplorerPath: (id: string, path: string | undefined) => void
   setTerminalId: (tabId: string, terminalId: number) => void
   setClaudeStatus: (tabId: string, status: ClaudeStatus) => void
   reorderTabs: (fromIndex: number, toIndex: number) => void
@@ -74,6 +76,11 @@ export const useTabStore = create<TabStore>()((set, get) => ({
   updateTabCwd: (id, cwd) =>
     set((state) => ({
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, cwd } : t)),
+    })),
+
+  updateExplorerPath: (id, path) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) => (t.id === id ? { ...t, explorerPath: path } : t)),
     })),
 
   setTerminalId: (tabId, terminalId) =>

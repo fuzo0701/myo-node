@@ -16,6 +16,8 @@ interface FileExplorerProps {
   onOpenFolder?: (path: string) => void
   onOpenInNewTab?: (path: string) => void
   currentCwd?: string
+  explorerPath?: string  // 탭별 저장된 탐색기 경로
+  onExplorerPathChange?: (path: string | undefined) => void  // 탐색기 경로 변경 콜백
 }
 
 interface ContextMenuState {
@@ -240,7 +242,7 @@ function FileTreeItem({
   )
 }
 
-export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFolder, onOpenInNewTab, currentCwd }: FileExplorerProps) {
+export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFolder, onOpenInNewTab, currentCwd, explorerPath, onExplorerPathChange }: FileExplorerProps) {
   const [rootPath, setRootPath] = useState<string>('')
   const [tree, setTree] = useState<FileNode[]>([])
   const [loading, setLoading] = useState(false)
@@ -642,36 +644,39 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
     return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   }, [])
 
-  // Track manual folder selection to prevent currentCwd from overriding
-  const manualSelectionRef = useRef<boolean>(false)
+  // Track last explorerPath to detect tab switches
+  const lastExplorerPathRef = useRef<string | undefined>(explorerPath)
 
-  // Load directory when currentCwd changes (sync with terminal)
-  // Skip if user manually selected a folder
+  // Load directory when explorerPath or currentCwd changes
+  // Priority: explorerPath (수동 선택) > currentCwd (터미널 경로)
   useEffect(() => {
     if (!isOpen) return
-    if (!currentCwd || currentCwd === '~') return
 
-    // Skip if user manually selected a folder
-    if (manualSelectionRef.current) {
-      return
-    }
+    // 탭 전환 감지: explorerPath가 변경되었을 때
+    const explorerPathChanged = lastExplorerPathRef.current !== explorerPath
+    lastExplorerPathRef.current = explorerPath
 
-    const normalizedCwd = normalizePath(currentCwd)
+    // 사용할 경로 결정
+    const targetPath = explorerPath || currentCwd
+
+    if (!targetPath || targetPath === '~') return
+
+    const normalizedTarget = normalizePath(targetPath)
     const normalizedRoot = rootPath ? normalizePath(rootPath) : ''
 
-    // Skip if same as current rootPath
-    if (normalizedCwd === normalizedRoot) return
-
-    // Update directory
-    loadDirectory(currentCwd)
-  }, [isOpen, currentCwd, rootPath, loadDirectory, normalizePath])
+    // 탭 전환 시 또는 경로가 다를 때 로드
+    if (explorerPathChanged || normalizedTarget !== normalizedRoot) {
+      loadDirectory(targetPath)
+    }
+  }, [isOpen, explorerPath, currentCwd, rootPath, loadDirectory, normalizePath])
 
   // Initial load when explorer opens with no rootPath
   useEffect(() => {
     if (!isOpen || rootPath) return
 
-    if (currentCwd && currentCwd !== '~') {
-      loadDirectory(currentCwd)
+    const targetPath = explorerPath || currentCwd
+    if (targetPath && targetPath !== '~') {
+      loadDirectory(targetPath)
     } else {
       window.fileSystem?.getCurrentDirectory().then((cwd: string) => {
         if (cwd) {
@@ -679,7 +684,7 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
         }
       })
     }
-  }, [isOpen, rootPath, currentCwd, loadDirectory])
+  }, [isOpen, rootPath, explorerPath, currentCwd, loadDirectory])
 
   // Watch for file system changes
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -736,7 +741,8 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
             onClick={async () => {
               const folderPath = await window.dialog?.openFolder({ title: 'Open Folder' })
               if (folderPath) {
-                manualSelectionRef.current = true
+                // 탭별 탐색기 경로 저장
+                onExplorerPathChange?.(folderPath)
                 loadDirectory(folderPath)
                 onOpenFolder?.(folderPath)
               }
@@ -778,7 +784,8 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
       <div
         className="file-explorer-path clickable"
         onClick={() => {
-          // Navigate to terminal's current directory
+          // Navigate to terminal's current directory and clear manual selection
+          onExplorerPathChange?.(undefined)
           if (currentCwd && currentCwd !== '~') {
             loadDirectory(currentCwd)
           } else {

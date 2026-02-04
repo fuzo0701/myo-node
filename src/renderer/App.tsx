@@ -14,7 +14,7 @@ import { useTabStore } from './store/tabs'
 import { useHistoryStore } from './store/history'
 
 export default function App() {
-  const { tabs, activeTabId, addTab, removeTab, setActiveTab, reorderTabs, restoreSession, updateTabCwd } = useTabStore()
+  const { tabs, activeTabId, addTab, removeTab, setActiveTab, reorderTabs, restoreSession, updateTabCwd, updateExplorerPath } = useTabStore()
   const { getConversation, activeConversationId } = useHistoryStore()
   const [splitMode, setSplitModeState] = useState<'none' | 'horizontal' | 'vertical'>('none')
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
@@ -59,9 +59,10 @@ export default function App() {
 
   const activeConversation = activeConversationId ? getConversation(activeConversationId) : null
 
-  // Get active tab's cwd for file explorer
+  // Get active tab's cwd and explorerPath for file explorer
   const activeTab = tabs.find(t => t.id === activeTabId)
   const activeTabCwd = activeTab?.cwd
+  const activeExplorerPath = activeTab?.explorerPath
 
   // Keyboard shortcuts handler
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -218,6 +219,12 @@ export default function App() {
             onOpenFolder={handleOpenFolder}
             onOpenInNewTab={(path) => addTab(path)}
             currentCwd={activeTabCwd}
+            explorerPath={activeExplorerPath}
+            onExplorerPathChange={(path) => {
+              if (activeTabId) {
+                updateExplorerPath(activeTabId, path)
+              }
+            }}
           />
         </ResizablePanel>
         <HistoryPanel
