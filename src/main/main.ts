@@ -16,11 +16,28 @@ let terminalIdCounter = 0
 // File watchers
 const fileWatchers: Map<string, fs.FSWatcher> = new Map()
 
-function getShell(): string {
+type ShellType = 'default' | 'powershell' | 'cmd' | 'bash' | 'zsh'
+
+function getShell(shellType: ShellType = 'default'): string {
   if (process.platform === 'win32') {
-    return process.env.COMSPEC || 'powershell.exe'
+    switch (shellType) {
+      case 'powershell':
+        return 'powershell.exe'
+      case 'cmd':
+        return 'cmd.exe'
+      default:
+        return process.env.COMSPEC || 'powershell.exe'
+    }
   }
-  return process.env.SHELL || '/bin/bash'
+  // macOS / Linux
+  switch (shellType) {
+    case 'bash':
+      return '/bin/bash'
+    case 'zsh':
+      return '/bin/zsh'
+    default:
+      return process.env.SHELL || '/bin/bash'
+  }
 }
 
 function createWindow() {
@@ -55,9 +72,9 @@ function createWindow() {
 }
 
 // Terminal IPC handlers
-ipcMain.handle('terminal:create', (_, cols: number, rows: number, cwd?: string) => {
+ipcMain.handle('terminal:create', (_, cols: number, rows: number, cwd?: string, shellType?: ShellType) => {
   const id = ++terminalIdCounter
-  const shell = getShell()
+  const shell = getShell(shellType)
 
   // Resolve cwd - use provided path, fall back to home directory
   let workingDir = os.homedir()
@@ -71,13 +88,36 @@ ipcMain.handle('terminal:create', (_, cols: number, rows: number, cwd?: string) 
     }
   }
 
+  // Set up environment with UTF-8 support
+  const env: { [key: string]: string } = {
+    ...process.env as { [key: string]: string },
+    LANG: 'ko_KR.UTF-8',
+    LC_ALL: 'ko_KR.UTF-8',
+  }
+
+  // Windows-specific: Use UTF-8 code page
+  if (process.platform === 'win32') {
+    env.PYTHONIOENCODING = 'utf-8'
+  }
+
   const term = pty.spawn(shell, [], {
     name: 'xterm-256color',
     cols,
     rows,
     cwd: workingDir,
-    env: process.env as { [key: string]: string },
+    env,
   })
+
+  // Windows: Set UTF-8 encoding on startup
+  if (process.platform === 'win32') {
+    if (shell.toLowerCase().includes('powershell')) {
+      // PowerShell UTF-8 encoding
+      term.write('[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::InputEncoding = [System.Text.Encoding]::UTF8; clear\r')
+    } else {
+      // CMD UTF-8 code page
+      term.write('chcp 65001 >nul && cls\r')
+    }
+  }
 
   term.onData((data) => {
     mainWindow?.webContents.send('terminal:data', id, data)
@@ -476,6 +516,21 @@ ipcMain.handle('dialog:saveFile', async (_, options: {
   })
 
   return result.canceled ? null : result.filePath
+})
+
+ipcMain.handle('dialog:openFolder', async (_, options?: {
+  title?: string
+  defaultPath?: string
+}) => {
+  if (!mainWindow) return null
+
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: options?.title || 'Open Folder',
+    defaultPath: options?.defaultPath,
+    properties: ['openDirectory'],
+  })
+
+  return result.canceled ? null : result.filePaths[0]
 })
 
 // Shell - open external URLs

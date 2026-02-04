@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useSettingsStore, RenderMode } from '../store/settings'
+import { useState, useMemo } from 'react'
+import { useSettingsStore, RenderMode, ShellType } from '../store/settings'
 import { useThemeStore } from '../store/theme'
 import ThemeEditor from './ThemeEditor'
 
@@ -14,11 +14,16 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     showThinking,
     autoScroll,
     compactMode,
+    shell,
     setRenderMode,
     setShowThinking,
     setAutoScroll,
     setCompactMode,
+    setShell,
   } = useSettingsStore()
+
+  // Detect platform
+  const isWindows = useMemo(() => navigator.platform.toLowerCase().includes('win'), [])
 
   const { themeName, themes, customThemes, setTheme, setFontSize, currentTheme, deleteCustomTheme, duplicateTheme } = useThemeStore()
   const [themeEditorOpen, setThemeEditorOpen] = useState(false)
@@ -238,6 +243,61 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           </div>
         </section>
 
+        {/* Shell Selection */}
+        <section className="settings-section">
+          <h3>Default Shell</h3>
+          <p className="settings-description">
+            Select the default shell for new terminals
+          </p>
+          <div className="shell-options">
+            <ShellOption
+              shell="default"
+              label="System Default"
+              description={isWindows ? 'PowerShell' : 'System shell'}
+              selected={shell === 'default'}
+              onSelect={() => setShell('default')}
+            />
+            {isWindows ? (
+              <>
+                <ShellOption
+                  shell="powershell"
+                  label="PowerShell"
+                  description="Windows PowerShell"
+                  selected={shell === 'powershell'}
+                  onSelect={() => setShell('powershell')}
+                />
+                <ShellOption
+                  shell="cmd"
+                  label="CMD"
+                  description="Command Prompt"
+                  selected={shell === 'cmd'}
+                  onSelect={() => setShell('cmd')}
+                />
+              </>
+            ) : (
+              <>
+                <ShellOption
+                  shell="bash"
+                  label="Bash"
+                  description="Bourne Again Shell"
+                  selected={shell === 'bash'}
+                  onSelect={() => setShell('bash')}
+                />
+                <ShellOption
+                  shell="zsh"
+                  label="Zsh"
+                  description="Z Shell"
+                  selected={shell === 'zsh'}
+                  onSelect={() => setShell('zsh')}
+                />
+              </>
+            )}
+          </div>
+          <p className="settings-hint">
+            Changes apply to new terminals only
+          </p>
+        </section>
+
         {/* Display Options */}
         <section className="settings-section">
           <h3>Display Options</h3>
@@ -302,6 +362,31 @@ function RenderModeOption({
       <span className="render-mode-icon">{icon}</span>
       <span className="render-mode-label">{label}</span>
       <span className="render-mode-desc">{description}</span>
+    </button>
+  )
+}
+
+interface ShellOptionProps {
+  shell: ShellType
+  label: string
+  description: string
+  selected: boolean
+  onSelect: () => void
+}
+
+function ShellOption({
+  label,
+  description,
+  selected,
+  onSelect,
+}: ShellOptionProps) {
+  return (
+    <button
+      className={`shell-option ${selected ? 'selected' : ''}`}
+      onClick={onSelect}
+    >
+      <span className="shell-label">{label}</span>
+      <span className="shell-desc">{description}</span>
     </button>
   )
 }

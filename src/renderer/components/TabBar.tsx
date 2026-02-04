@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Tab } from '../store/tabs'
+import { Tab, ClaudeStatus } from '../store/tabs'
 
 type SplitMode = 'none' | 'horizontal' | 'vertical'
 
@@ -18,6 +18,20 @@ interface TabBarProps {
   historyOpen: boolean
   onSettingsToggle: () => void
   settingsOpen: boolean
+}
+
+// Claude status indicator colors
+const getStatusColor = (status: ClaudeStatus): string | null => {
+  switch (status) {
+    case 'running':
+      return '#3b82f6' // blue
+    case 'loading':
+      return '#eab308' // yellow
+    case 'completed':
+      return '#22c55e' // green
+    default:
+      return null
+  }
 }
 
 // Refined SVG Icons
@@ -157,6 +171,13 @@ export default function TabBar({
           >
             <span className="tab-icon">{Icons.terminal}</span>
             <span className="tab-title">{tab.title}</span>
+            {tab.claudeStatus !== 'idle' && (
+              <span
+                className="tab-status-indicator"
+                style={{ backgroundColor: getStatusColor(tab.claudeStatus) || undefined }}
+                title={`Claude: ${tab.claudeStatus}`}
+              />
+            )}
             <button
               className="tab-close"
               onClick={(e) => {

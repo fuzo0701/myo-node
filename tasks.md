@@ -16,6 +16,8 @@
 - [x] 커스텀 타이틀바 (윈도우 컨트롤)
 - [x] 세션 복원 (앱 재시작 시 탭/작업 디렉토리 유지)
 - [x] 드래그로 탭 순서 변경
+- [x] UTF-8 인코딩 자동 설정 (CMD: chcp 65001, PowerShell: OutputEncoding)
+- [x] 명령어 팔레트 (Ctrl+Shift+P) - Claude Code, Git, NPM, 인코딩 명령어 등
 
 ### 파일 탐색기
 - [x] 좌측 파일 트리 패널
@@ -44,6 +46,8 @@
 - [x] 이름 바꾸기 (F2)
 - [x] 삭제 (Delete)
 - [x] Windows 탐색기와 클립보드 연동
+- [x] 컨텍스트 메뉴 z-index 수정 (createPortal로 터미널 위에 표시)
+- [x] 컨텍스트 메뉴 순서 개선 (Open in New Tab → New File → New Folder → Copy → Cut → Paste → Rename → Delete)
 
 ### 테마
 - [x] 7개 내장 테마 (Neon, Dark, Light, Monokai, Dracula, Nord, Cyberpunk)
@@ -72,6 +76,7 @@
 - [x] Error/Success 메시지 스타일링
 - [x] 설정 패널
 - [x] 스트리밍 렌더링 최적화 (throttling, React.memo, pre-compiled regex)
+- [x] Claude 작업 상태 탭 인디케이터 (파란점: 실행 중, 노란점: 로딩, 녹색점: 완료)
 
 ### 키보드 단축키 ⌨️
 - [x] Ctrl+T: 새 탭
@@ -83,6 +88,7 @@
 - [x] Ctrl+,: 설정 패널 토글
 - [x] Ctrl+\: 가로 분할 토글
 - [x] Ctrl+Shift+\: 세로 분할 토글
+- [x] Ctrl+Shift+P: 명령어 팔레트
 - [x] Escape: 패널 닫기
 
 ### UI 개선
@@ -100,6 +106,12 @@
 ---
 
 ## 진행 예정 기능 📋
+
+### 우선순위 높음
+- [x] 폴더 열기 기능 개선 (탐색기에서 폴더 선택 시 탐색기 + 터미널 동시 갱신)
+- [x] 폴더 컨텍스트 메뉴에 "새 탭으로 열기" 추가 (새 터미널 탭 생성 + 해당 폴더로 이동)
+- [x] 셸 선택 기능 (OS별 기본 셸 + Windows: cmd/PowerShell 선택 가능)
+- [x] 터미널 cd 명령 감지 제거 (cd로 탐색기 동기화 비활성화)
 
 ### 우선순위 중간
 - [x] 대화 내보내기 (Markdown, JSON)
@@ -136,6 +148,7 @@
 | `Ctrl+,` | 설정 토글 |
 | `Ctrl+\` | 가로 분할 |
 | `Ctrl+Shift+\` | 세로 분할 |
+| `Ctrl+Shift+P` | 명령어 팔레트 |
 | `Escape` | 패널 닫기 |
 
 ### 실행 방법

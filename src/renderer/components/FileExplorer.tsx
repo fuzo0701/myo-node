@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 
 interface FileNode {
   name: string
@@ -12,6 +13,8 @@ interface FileExplorerProps {
   isOpen: boolean
   onClose: () => void
   onFileSelect?: (path: string) => void
+  onOpenFolder?: (path: string) => void
+  onOpenInNewTab?: (path: string) => void
   currentCwd?: string
 }
 
@@ -133,6 +136,19 @@ const Icons = {
       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
     </svg>
   ),
+  openFolder: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+      <line x1="12" y1="11" x2="12" y2="17" />
+      <polyline points="9 14 12 11 15 14" />
+    </svg>
+  ),
+  terminal: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="4 17 10 11 4 5" />
+      <line x1="12" y1="19" x2="20" y2="19" />
+    </svg>
+  ),
 }
 
 // File type icon mapping
@@ -180,13 +196,14 @@ function FileTreeItem({
   return (
     <>
       <div
-        className={`file-tree-item ${isSelected ? 'selected' : ''} ${isCut ? 'cut' : ''}`}
+        className={`file-tree-item ${isSelected && !isDirectory ? 'selected' : ''} ${isCut ? 'cut' : ''}`}
         style={{ paddingLeft }}
         onClick={() => {
-          // Always set selected path first
-          onSelect(node.path, node.type)
-          // Then toggle if directory
-          if (isDirectory) {
+          // Set selected path for files only
+          if (!isDirectory) {
+            onSelect(node.path, node.type)
+          } else {
+            // Just toggle directory
             onToggle(node.path)
           }
         }}
@@ -223,7 +240,7 @@ function FileTreeItem({
   )
 }
 
-export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd }: FileExplorerProps) {
+export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFolder, onOpenInNewTab, currentCwd }: FileExplorerProps) {
   const [rootPath, setRootPath] = useState<string>('')
   const [tree, setTree] = useState<FileNode[]>([])
   const [loading, setLoading] = useState(false)
@@ -277,9 +294,12 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
       const updateNode = (nodes: FileNode[]): FileNode[] => {
         return nodes.map((node) => {
           if (node.path === path) {
+            console.log('[toggleDirectory] path:', path, 'expanded:', node.expanded, 'children:', node.children?.length)
             if (!node.expanded && node.children?.length === 0) {
               // Load children asynchronously
+              isExpandingRef.current = true
               window.fileSystem?.readDirectory(path).then((entries: Array<{ name: string; type: 'file' | 'directory' }>) => {
+                isExpandingRef.current = false
                 if (entries) {
                   const children: FileNode[] = entries
                     .filter((entry) => !entry.name.startsWith('.'))
@@ -622,13 +642,19 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
     return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   }, [])
 
-  // Track last valid cwd to prevent unwanted resets
-  const lastValidCwd = useRef<string | null>(null)
+  // Track manual folder selection to prevent currentCwd from overriding
+  const manualSelectionRef = useRef<boolean>(false)
 
   // Load directory when currentCwd changes (sync with terminal)
+  // Skip if user manually selected a folder
   useEffect(() => {
     if (!isOpen) return
     if (!currentCwd || currentCwd === '~') return
+
+    // Skip if user manually selected a folder
+    if (manualSelectionRef.current) {
+      return
+    }
 
     const normalizedCwd = normalizePath(currentCwd)
     const normalizedRoot = rootPath ? normalizePath(rootPath) : ''
@@ -637,7 +663,6 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
     if (normalizedCwd === normalizedRoot) return
 
     // Update directory
-    lastValidCwd.current = currentCwd
     loadDirectory(currentCwd)
   }, [isOpen, currentCwd, rootPath, loadDirectory, normalizePath])
 
@@ -646,12 +671,10 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
     if (!isOpen || rootPath) return
 
     if (currentCwd && currentCwd !== '~') {
-      lastValidCwd.current = currentCwd
       loadDirectory(currentCwd)
     } else {
       window.fileSystem?.getCurrentDirectory().then((cwd: string) => {
         if (cwd) {
-          lastValidCwd.current = cwd
           loadDirectory(cwd)
         }
       })
@@ -660,6 +683,7 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
 
   // Watch for file system changes
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const isExpandingRef = useRef<boolean>(false)
 
   useEffect(() => {
     if (!isOpen || !rootPath) return
@@ -669,6 +693,10 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
 
     // Listen for file system changes
     const unsubscribe = window.fileSystem?.onFsChange((dirPath, _eventType, _filename) => {
+      // Skip refresh while expanding folders (reading directory content triggers fs events)
+      if (isExpandingRef.current) {
+        return
+      }
       // Refresh the tree when changes detected in watched directory
       if (dirPath === rootPath || dirPath.startsWith(rootPath)) {
         // Debounce: wait 300ms before refreshing
@@ -703,6 +731,20 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
       <div className="file-explorer-header">
         <h2>Explorer</h2>
         <div className="file-explorer-actions">
+          <button
+            className="explorer-action-btn"
+            onClick={async () => {
+              const folderPath = await window.dialog?.openFolder({ title: 'Open Folder' })
+              if (folderPath) {
+                manualSelectionRef.current = true
+                loadDirectory(folderPath)
+                onOpenFolder?.(folderPath)
+              }
+            }}
+            title="Open Folder"
+          >
+            {Icons.openFolder}
+          </button>
           <button
             className="explorer-action-btn"
             onClick={handleNewFile}
@@ -771,13 +813,38 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
         )}
       </div>
 
-      {/* Context Menu */}
-      {contextMenu.isOpen && (
+      {/* Context Menu - rendered via portal to avoid z-index stacking context issues */}
+      {contextMenu.isOpen && createPortal(
         <div
           className="context-menu"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
+          {contextMenu.targetType === 'directory' && (
+            <>
+              <button
+                className="context-menu-item"
+                onClick={() => {
+                  const targetPath = contextMenu.targetPath
+                  closeContextMenu()
+                  onOpenInNewTab?.(targetPath)
+                }}
+              >
+                {Icons.terminal}
+                <span>Open in New Tab</span>
+              </button>
+              <div className="context-menu-divider" />
+            </>
+          )}
+          <button className="context-menu-item" onClick={handleNewFile}>
+            {Icons.newFile}
+            <span>New File</span>
+          </button>
+          <button className="context-menu-item" onClick={handleNewFolder}>
+            {Icons.newFolder}
+            <span>New Folder</span>
+          </button>
+          <div className="context-menu-divider" />
           {contextMenu.targetPath && (
             <>
               <button className="context-menu-item" onClick={handleCopy}>
@@ -797,15 +864,6 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
             <span>Paste</span>
             <span className="shortcut">Ctrl+V</span>
           </button>
-          <div className="context-menu-divider" />
-          <button className="context-menu-item" onClick={handleNewFile}>
-            {Icons.newFile}
-            <span>New File</span>
-          </button>
-          <button className="context-menu-item" onClick={handleNewFolder}>
-            {Icons.newFolder}
-            <span>New Folder</span>
-          </button>
           {contextMenu.targetPath && (
             <>
               <div className="context-menu-divider" />
@@ -821,7 +879,8 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, currentCwd
               </button>
             </>
           )}
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Rename Dialog */}

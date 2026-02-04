@@ -14,7 +14,7 @@ import { useTabStore } from './store/tabs'
 import { useHistoryStore } from './store/history'
 
 export default function App() {
-  const { tabs, activeTabId, addTab, removeTab, setActiveTab, reorderTabs, restoreSession } = useTabStore()
+  const { tabs, activeTabId, addTab, removeTab, setActiveTab, reorderTabs, restoreSession, updateTabCwd } = useTabStore()
   const { getConversation, activeConversationId } = useHistoryStore()
   const [splitMode, setSplitModeState] = useState<'none' | 'horizontal' | 'vertical'>('none')
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
@@ -26,6 +26,17 @@ export default function App() {
       window.terminal.write(activeTab.terminalId, command + '\r')
     }
   }, [tabs, activeTabId])
+
+  // Handle folder open - change terminal directory and update tab cwd
+  const handleOpenFolder = useCallback((folderPath: string) => {
+    // Escape path for shell command
+    const escapedPath = folderPath.includes(' ') ? `"${folderPath}"` : folderPath
+    sendCommandToTerminal(`cd ${escapedPath}`)
+    // Update tab's cwd so explorer stays in sync
+    if (activeTabId) {
+      updateTabCwd(activeTabId, folderPath)
+    }
+  }, [sendCommandToTerminal, activeTabId, updateTabCwd])
 
   // Restore session on app startup (clear stale terminal IDs)
   useEffect(() => {
@@ -204,6 +215,8 @@ export default function App() {
               setEditingFilePath(path)
               setEditorOpen(true)
             }}
+            onOpenFolder={handleOpenFolder}
+            onOpenInNewTab={(path) => addTab(path)}
             currentCwd={activeTabCwd}
           />
         </ResizablePanel>

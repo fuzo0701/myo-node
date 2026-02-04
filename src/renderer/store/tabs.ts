@@ -1,10 +1,13 @@
 import { create } from 'zustand'
 
+export type ClaudeStatus = 'idle' | 'running' | 'loading' | 'completed'
+
 export interface Tab {
   id: string
   title: string
   cwd: string
   terminalId?: number
+  claudeStatus: ClaudeStatus
 }
 
 interface TabStore {
@@ -17,6 +20,7 @@ interface TabStore {
   updateTabTitle: (id: string, title: string) => void
   updateTabCwd: (id: string, cwd: string) => void
   setTerminalId: (tabId: string, terminalId: number) => void
+  setClaudeStatus: (tabId: string, status: ClaudeStatus) => void
   reorderTabs: (fromIndex: number, toIndex: number) => void
   restoreSession: () => void
 }
@@ -26,6 +30,7 @@ function createTab(counter: number, cwd?: string): Tab {
     id: `tab-${counter}`,
     title: `Terminal ${counter}`,
     cwd: cwd || '~',
+    claudeStatus: 'idle',
   }
 }
 
@@ -74,6 +79,11 @@ export const useTabStore = create<TabStore>()((set, get) => ({
   setTerminalId: (tabId, terminalId) =>
     set((state) => ({
       tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, terminalId } : t)),
+    })),
+
+  setClaudeStatus: (tabId, status) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, claudeStatus: status } : t)),
     })),
 
   reorderTabs: (fromIndex, toIndex) => {

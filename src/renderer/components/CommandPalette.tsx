@@ -37,6 +37,21 @@ const defaultCommands: Command[] = [
     command: 'claude --continue',
   },
   {
+    id: 'ps-execution-policy',
+    name: 'PowerShell: Set Execution Policy',
+    command: 'Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser',
+  },
+  {
+    id: 'chcp-utf8',
+    name: 'CMD: Set UTF-8 Encoding',
+    command: 'chcp 65001',
+  },
+  {
+    id: 'ps-utf8',
+    name: 'PowerShell: Set UTF-8 Encoding',
+    command: '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::InputEncoding = [System.Text.Encoding]::UTF8',
+  },
+  {
     id: 'git-status',
     name: 'Git Status',
     command: 'git status',

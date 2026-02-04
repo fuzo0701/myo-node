@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+export type ShellType = 'default' | 'powershell' | 'cmd' | 'bash' | 'zsh'
+
 export type TerminalAPI = {
-  create: (cols: number, rows: number, cwd?: string) => Promise<number>
+  create: (cols: number, rows: number, cwd?: string, shell?: ShellType) => Promise<number>
   write: (id: number, data: string) => void
   resize: (id: number, cols: number, rows: number) => void
   kill: (id: number) => void
@@ -45,10 +47,14 @@ export type DialogAPI = {
     defaultPath?: string
     filters?: { name: string; extensions: string[] }[]
   }) => Promise<string | null>
+  openFolder: (options?: {
+    title?: string
+    defaultPath?: string
+  }) => Promise<string | null>
 }
 
 contextBridge.exposeInMainWorld('terminal', {
-  create: (cols: number, rows: number, cwd?: string) => ipcRenderer.invoke('terminal:create', cols, rows, cwd),
+  create: (cols: number, rows: number, cwd?: string, shell?: ShellType) => ipcRenderer.invoke('terminal:create', cols, rows, cwd, shell),
   write: (id: number, data: string) => ipcRenderer.send('terminal:write', id, data),
   resize: (id: number, cols: number, rows: number) => ipcRenderer.send('terminal:resize', id, cols, rows),
   kill: (id: number) => ipcRenderer.send('terminal:kill', id),
@@ -101,6 +107,7 @@ contextBridge.exposeInMainWorld('clipboard', {
 
 contextBridge.exposeInMainWorld('dialog', {
   saveFile: (options) => ipcRenderer.invoke('dialog:saveFile', options),
+  openFolder: (options) => ipcRenderer.invoke('dialog:openFolder', options),
 } as DialogAPI)
 
 contextBridge.exposeInMainWorld('shell', {

@@ -9,10 +9,12 @@ import { useHistoryStore } from '../store/history'
 import { useSettingsStore } from '../store/settings'
 import { useTabStore } from '../store/tabs'
 
+type ShellType = 'default' | 'powershell' | 'cmd' | 'bash' | 'zsh'
+
 declare global {
   interface Window {
     terminal: {
-      create: (cols: number, rows: number, cwd?: string) => Promise<number>
+      create: (cols: number, rows: number, cwd?: string, shell?: ShellType) => Promise<number>
       write: (id: number, data: string) => void
       resize: (id: number, cols: number, rows: number) => void
       kill: (id: number) => void
@@ -46,8 +48,9 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
   const [ptyId, setPtyId] = useState<number | null>(null)
   const theme = useThemeStore((state) => state.currentTheme)
   const renderMode = useSettingsStore((state) => state.renderMode)
+  const shell = useSettingsStore((state) => state.shell)
   const { createConversation, addMessage } = useHistoryStore()
-  const { tabs, setTerminalId, updateTabCwd, updateTabTitle } = useTabStore()
+  const { tabs, setTerminalId, updateTabCwd, updateTabTitle, setClaudeStatus } = useTabStore()
 
   // Get current tab's cwd
   const currentTab = tabs.find(t => t.id === tabId)
@@ -69,6 +72,28 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
   const claudeEndTimerRef = useRef<NodeJS.Timeout | null>(null)
   const CLAUDE_END_DEBOUNCE_MS = 1000 // Wait 1 second of silence to consider response ended
 
+  // Claude status tracking for tab indicator
+  const claudeLoadingTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const CLAUDE_LOADING_DEBOUNCE_MS = 2000 // Wait 2 seconds of silence to show "loading" status
+  const setClaudeStatusRef = useRef(setClaudeStatus)
+  const tabIdRef = useRef(tabId)
+  useEffect(() => {
+    setClaudeStatusRef.current = setClaudeStatus
+    tabIdRef.current = tabId
+  }, [setClaudeStatus, tabId])
+
+  // Patterns to detect command prompt (Claude session ended)
+  const promptPatterns = useMemo(() => [
+    /\$\s*$/,                    // bash prompt ending with $
+    />\s*$/,                     // cmd/powershell prompt ending with >
+    /PS [^>]+>\s*$/,             // PowerShell prompt
+    /❯\s*$/,                     // oh-my-zsh prompt
+    /➜\s*$/,                     // oh-my-zsh arrow
+    /╰─>\s*$/,                   // Custom prompt
+    /\]\$\s*$/,                  // [user@host path]$
+    /\]\s*%\s*$/,                // zsh prompt ending with %
+  ], [])
+
   // Patterns to detect Claude Code - memoized
   // More specific patterns to detect Claude Code CLI output
   const claudePatterns = useMemo(() => [
@@ -87,9 +112,6 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     /thinking\.\.\./i,        // Thinking indicator
     /Co-Authored-By:.*Claude/i, // Git commit pattern
   ], [])
-
-  // For tracking directory changes from prompt
-  const lastDetectedCwd = useRef<string>('')
 
   // Track isActive state in ref for use in callbacks
   const isActiveRef = useRef(isActive)
@@ -209,89 +231,26 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     currentBlockRef.current = ''
   }, [])
 
-  // Extract Windows path from terminal output (PowerShell/CMD prompt)
-  const extractPathFromPrompt = useCallback((data: string): string | null => {
-    // Skip if Claude is active - don't change directory based on Claude output
-    if (isClaudeActiveRef.current) {
-      return null
-    }
-
-    // Remove ANSI escape codes
-    const cleanData = data.replace(/\x1B\[[0-9;?]*[A-Za-z]/g, '')
-
-    // Find ALL prompts and use the LAST one (most recent directory)
-    // Prompt must end with > followed by end of line, space, or nothing (ready for input)
-    // PowerShell format: PS C:\Users\user>
-    // CMD format: C:\Users\user>
-    const psMatches = [...cleanData.matchAll(/PS\s+([A-Za-z]:[\\\/][^\r\n>]*)>(?:\s*$|\r|\n)/g)]
-    const cmdMatches = [...cleanData.matchAll(/^([A-Za-z]:\\[^\r\n>]*)>(?:\s*$|\r|\n)/gm)]
-
-    // Get the last match from either pattern
-    let lastPath: string | null = null
-    let lastIndex = -1
-
-    for (const match of psMatches) {
-      if (match.index !== undefined && match.index > lastIndex) {
-        lastIndex = match.index
-        lastPath = match[1]
-      }
-    }
-
-    for (const match of cmdMatches) {
-      if (match.index !== undefined && match.index > lastIndex) {
-        lastIndex = match.index
-        lastPath = match[1]
-      }
-    }
-
-    if (lastPath) {
-      // Clean up the path - remove trailing spaces
-      let path = lastPath.trim()
-      // Normalize path separators
-      path = path.replace(/\//g, '\\')
-      // Remove trailing backslash for consistency (except for root like D:\)
-      if (path.length > 3 && path.endsWith('\\')) {
-        path = path.slice(0, -1)
-      }
-      // Validate: must be a simple path without duplicates
-      const driveMatches = path.match(/[A-Za-z]:\\/g)
-      if (driveMatches && driveMatches.length > 1) {
-        console.log('[HybridTerminal] Corrupted path detected, skipping:', path)
-        return null
-      }
-      // Validate it looks like a real path
-      if (/^[A-Za-z]:\\?/.test(path)) {
-        console.log('[HybridTerminal] Detected path:', path)
-        return path
-      }
-    }
-    return null
-  }, [])
-
   const handleTerminalData = useCallback((data: string) => {
     // Always write to xterm - terminal output should always be visible
     terminalRef.current?.write(data)
 
-    // Try to detect directory changes from prompt (only for active tab)
-    if (tabId && isActiveRef.current) {
-      // Debug: log raw data
-      if (data.includes('>')) {
-        console.log('[HybridTerminal] Raw data with prompt:', JSON.stringify(data))
-      }
-      const detectedPath = extractPathFromPrompt(data)
-      if (detectedPath && detectedPath !== lastDetectedCwd.current) {
-        lastDetectedCwd.current = detectedPath
-        updateTabCwd(tabId, detectedPath)
-      }
-    }
-
     // Detect Claude output (for history and visual rendering)
     const isClaudeData = detectClaudeOutput(data)
+    const strippedData = stripAnsi(data)
+
+    // Check if prompt has returned (Claude session ended)
+    const isPromptReturn = promptPatterns.some(pattern => pattern.test(strippedData))
 
     if (isClaudeData && !isClaudeActiveRef.current) {
       isClaudeActiveRef.current = true
       setIsClaudeActive(true)
       console.log('[History] Claude detected')
+
+      // Set tab status to "running"
+      if (tabIdRef.current) {
+        setClaudeStatusRef.current(tabIdRef.current, 'running')
+      }
 
       // Create conversation if not exists
       if (!conversationIdRef.current) {
@@ -301,12 +260,42 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       }
     }
 
+    // Update status when Claude is active
+    if (isClaudeActiveRef.current && tabIdRef.current) {
+      // Cancel loading timer since we got output
+      if (claudeLoadingTimerRef.current) {
+        clearTimeout(claudeLoadingTimerRef.current)
+        claudeLoadingTimerRef.current = null
+      }
+
+      // Set to running (we're receiving data)
+      setClaudeStatusRef.current(tabIdRef.current, 'running')
+
+      // Check for prompt return (completion)
+      if (isPromptReturn) {
+        // Prompt detected - Claude session completed
+        setClaudeStatusRef.current(tabIdRef.current, 'completed')
+        isClaudeActiveRef.current = false
+        setIsClaudeActive(false)
+        finalizeBlock()
+        console.log('[Status] Claude completed (prompt returned)')
+      } else {
+        // Start loading timer - if no output for 2 seconds, show "loading"
+        claudeLoadingTimerRef.current = setTimeout(() => {
+          if (isClaudeActiveRef.current && tabIdRef.current) {
+            setClaudeStatusRef.current(tabIdRef.current, 'loading')
+            console.log('[Status] Claude loading (waiting for response)')
+          }
+        }, CLAUDE_LOADING_DEBOUNCE_MS)
+      }
+    }
+
     // Visual rendering for Claude output (hybrid/rendered mode only)
     if ((renderMode === 'hybrid' || renderMode === 'rendered') && isClaudeActiveRef.current) {
       currentBlockRef.current += data
-      scheduleBlockUpdate(stripAnsi(currentBlockRef.current), true)
+      scheduleBlockUpdate(strippedData, true)
 
-      // Reset debounce timer
+      // Reset debounce timer for block finalization
       if (claudeEndTimerRef.current) {
         clearTimeout(claudeEndTimerRef.current)
       }
@@ -316,9 +305,13 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
         isClaudeActiveRef.current = false
         setIsClaudeActive(false)
         claudeEndTimerRef.current = null
+        // Set to completed when Claude response ends
+        if (tabIdRef.current) {
+          setClaudeStatusRef.current(tabIdRef.current, 'completed')
+        }
       }, CLAUDE_END_DEBOUNCE_MS)
     }
-  }, [tabId, tabCwd, extractPathFromPrompt, updateTabCwd, renderMode, detectClaudeOutput, scheduleBlockUpdate, finalizeBlock, stripAnsi])
+  }, [renderMode, detectClaudeOutput, scheduleBlockUpdate, finalizeBlock, stripAnsi, promptPatterns])
 
   // User input handler - uses refs to always have current values
   const handleUserInput = useCallback((data: string) => {
@@ -340,6 +333,12 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
             conversationIdRef.current = newId
             addMessageRef.current(conversationIdRef.current, 'user', input)
             console.log('[History] Started Claude session:', conversationIdRef.current)
+            // Set status to running when Claude command is started
+            if (tabIdRef.current) {
+              setClaudeStatusRef.current(tabIdRef.current, 'running')
+              isClaudeActiveRef.current = true
+              setIsClaudeActive(true)
+            }
           } else if (conversationIdRef.current) {
             // Save follow-up input to existing conversation
             addMessageRef.current(conversationIdRef.current, 'user', input)
@@ -372,6 +371,9 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       }
       if (claudeEndTimerRef.current !== null) {
         clearTimeout(claudeEndTimerRef.current)
+      }
+      if (claudeLoadingTimerRef.current !== null) {
+        clearTimeout(claudeLoadingTimerRef.current)
       }
     }
   }, [])
@@ -467,7 +469,7 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       // Create PTY with tab's cwd
       const initPty = async () => {
         const { cols, rows } = terminal
-        const id = await window.terminal.create(cols, rows, tabCwd)
+        const id = await window.terminal.create(cols, rows, tabCwd, shell)
         ptyIdRef.current = id
         setPtyId(id)
 
@@ -480,7 +482,6 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
           if (actualCwd) {
             console.log('[HybridTerminal] PTY started in:', actualCwd)
             updateTabCwd(tabId, actualCwd)
-            lastDetectedCwd.current = actualCwd
           }
         }
 
@@ -555,7 +556,7 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     }
   }, [theme])
 
-  // Focus terminal when tab becomes active and refit
+  // Focus input bar when tab becomes active and refit terminal
   useEffect(() => {
     if (terminalRef.current && tabId && isActive) {
       // Small delay to ensure DOM is ready
