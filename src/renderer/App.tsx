@@ -31,7 +31,9 @@ export default function App() {
   const handleOpenFolder = useCallback((folderPath: string) => {
     // Escape path for shell command
     const escapedPath = folderPath.includes(' ') ? `"${folderPath}"` : folderPath
-    sendCommandToTerminal(`cd ${escapedPath}`)
+    // Use pushd instead of cd - works across all shells (CMD, PowerShell, Bash, Zsh)
+    // and handles drive changes on Windows (cd alone doesn't change drives in CMD)
+    sendCommandToTerminal(`pushd ${escapedPath}`)
     // Update tab's cwd so explorer stays in sync
     if (activeTabId) {
       updateTabCwd(activeTabId, folderPath)
