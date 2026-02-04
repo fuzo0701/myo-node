@@ -132,6 +132,10 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
   // Buffer for user input (save to history only on Enter)
   const userInputBuffer = useRef<string>('')
 
+  // IME composition state for Korean input
+  const isComposingRef = useRef(false)
+  const compositionJustEndedRef = useRef(false)
+
   // Strip ANSI escape codes from text
   const stripAnsi = useCallback((text: string): string => {
     // Remove all ANSI escape sequences
@@ -429,8 +433,40 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       terminalRef.current = terminal
       fitAddonRef.current = fitAddon
 
-      // Handle user input
-      terminal.onData(handleUserInput)
+      // Handle user input with IME composition support
+      terminal.onData((data) => {
+        // Skip if IME is composing (Korean, Japanese, Chinese input)
+        if (isComposingRef.current) {
+          return
+        }
+        // Skip duplicated input right after composition ends
+        if (compositionJustEndedRef.current) {
+          compositionJustEndedRef.current = false
+          // Only allow control characters (Enter, Space, etc.) through
+          if (data.length > 1 || data.charCodeAt(0) > 127) {
+            return
+          }
+        }
+        handleUserInput(data)
+      })
+
+      // Handle IME composition events for Korean input
+      const textareaEl = terminalContainerRef.current?.querySelector('textarea')
+      if (textareaEl) {
+        textareaEl.addEventListener('compositionstart', () => {
+          isComposingRef.current = true
+        })
+        textareaEl.addEventListener('compositionend', (e: CompositionEvent) => {
+          isComposingRef.current = false
+          compositionJustEndedRef.current = true
+          // Send the composed text to PTY
+          if (e.data && ptyIdRef.current !== null) {
+            window.terminal.write(ptyIdRef.current, e.data)
+            // Also add to user input buffer
+            userInputBuffer.current += e.data
+          }
+        })
+      }
 
       // Handle terminal title changes (OSC sequences)
       terminal.onTitleChange((title) => {
