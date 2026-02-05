@@ -42,6 +42,12 @@ const Icons = {
       <line x1="12" y1="19" x2="20" y2="19" />
     </svg>
   ),
+  home: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      <polyline points="9 22 9 12 15 12 15 22" />
+    </svg>
+  ),
   explorer: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
@@ -169,7 +175,7 @@ export default function TabBar({
             onDragLeave={handleDragLeave}
             onDrop={(e) => handleDrop(e, index)}
           >
-            <span className="tab-icon">{Icons.terminal}</span>
+            <span className="tab-icon">{tab.isDashboard ? Icons.home : Icons.terminal}</span>
             <span className="tab-title">{tab.title}</span>
             {tab.claudeStatus !== 'idle' && (
               <span
@@ -178,16 +184,18 @@ export default function TabBar({
                 title={`Claude: ${tab.claudeStatus}`}
               />
             )}
-            <button
-              className="tab-close"
-              onClick={(e) => {
-                e.stopPropagation()
-                onRemoveTab(tab.id)
-              }}
-              aria-label="Close tab"
-            >
-              {Icons.close}
-            </button>
+            {!tab.isDashboard && (
+              <button
+                className="tab-close"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onRemoveTab(tab.id)
+                }}
+                aria-label="Close tab"
+              >
+                {Icons.close}
+              </button>
+            )}
           </div>
         ))}
         <button className="add-tab" onClick={(e) => { e.stopPropagation(); onAddTab(); }} aria-label="New tab">

@@ -101,6 +101,14 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               selected={renderMode === 'rendered'}
               onSelect={() => setRenderMode('rendered')}
             />
+            <RenderModeOption
+              mode="abstracted"
+              label="Abstracted"
+              description="Block UI with input bar"
+              icon="▣"
+              selected={renderMode === 'abstracted'}
+              onSelect={() => setRenderMode('abstracted')}
+            />
           </div>
         </section>
 

@@ -6,6 +6,7 @@ export interface Tab {
   id: string
   title: string
   cwd: string
+  isDashboard?: boolean  // 대시보드 탭 (항상 첫 번째, 터미널 없음)
   explorerPath?: string  // 탭별 탐색기 경로 (수동 선택 시 설정)
   terminalId?: number
   claudeStatus: ClaudeStatus
@@ -15,7 +16,7 @@ interface TabStore {
   tabs: Tab[]
   activeTabId: string | null
   tabCounter: number
-  addTab: (cwd?: string) => void
+  addTab: (cwd?: string, explorerPath?: string) => void
   removeTab: (id: string) => void
   setActiveTab: (id: string) => void
   updateTabTitle: (id: string, title: string) => void
@@ -27,23 +28,34 @@ interface TabStore {
   restoreSession: () => void
 }
 
-function createTab(counter: number, cwd?: string): Tab {
+function createDashboardTab(): Tab {
+  return {
+    id: 'dashboard',
+    title: 'Dashboard',
+    cwd: '~',
+    isDashboard: true,
+    claudeStatus: 'idle',
+  }
+}
+
+function createTab(counter: number, cwd?: string, explorerPath?: string): Tab {
   return {
     id: `tab-${counter}`,
     title: `Terminal ${counter}`,
     cwd: cwd || '~',
+    explorerPath,
     claudeStatus: 'idle',
   }
 }
 
 export const useTabStore = create<TabStore>()((set, get) => ({
-  tabs: [createTab(1)],
-  activeTabId: 'tab-1',
-  tabCounter: 1,
+  tabs: [createDashboardTab()],
+  activeTabId: 'dashboard',
+  tabCounter: 0,
 
-  addTab: (cwd?: string) => {
+  addTab: (cwd?: string, explorerPath?: string) => {
     const newCounter = get().tabCounter + 1
-    const newTab = createTab(newCounter, cwd)
+    const newTab = createTab(newCounter, cwd, explorerPath)
     set((state) => ({
       tabs: [...state.tabs, newTab],
       activeTabId: newTab.id,
@@ -53,7 +65,12 @@ export const useTabStore = create<TabStore>()((set, get) => ({
 
   removeTab: (id) => {
     const { tabs, activeTabId } = get()
-    if (tabs.length === 1) return
+    // Cannot remove dashboard tab
+    const tab = tabs.find(t => t.id === id)
+    if (tab?.isDashboard) return
+    // Must keep at least dashboard
+    const nonDashboardTabs = tabs.filter(t => !t.isDashboard)
+    if (nonDashboardTabs.length === 0) return
 
     const index = tabs.findIndex((t) => t.id === id)
     const newTabs = tabs.filter((t) => t.id !== id)

@@ -10,8 +10,10 @@ import FileExplorer from './components/FileExplorer'
 import FileEditor from './components/FileEditor'
 import ResizablePanel from './components/ResizablePanel'
 import CommandPalette from './components/CommandPalette'
+import FullScreenWelcome from './components/FullScreenWelcome'
 import { useTabStore } from './store/tabs'
 import { useHistoryStore } from './store/history'
+import { useSettingsStore } from './store/settings'
 
 export default function App() {
   const { tabs, activeTabId, addTab, removeTab, setActiveTab, reorderTabs, restoreSession, updateTabCwd, updateExplorerPath } = useTabStore()
@@ -19,13 +21,29 @@ export default function App() {
   const [splitMode, setSplitModeState] = useState<'none' | 'horizontal' | 'vertical'>('none')
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
 
+  const renderMode = useSettingsStore((state) => state.renderMode)
+
+  // Get active tab's cwd and explorerPath for file explorer (must be before welcome handlers)
+  const activeTab = tabs.find(t => t.id === activeTabId)
+  const activeTabCwd = activeTab?.cwd
+  const activeExplorerPath = activeTab?.explorerPath
+
+  // Determine if active tab is the dashboard
+  const showDashboard = activeTab?.isDashboard === true
+
   // Send command to active terminal
   const sendCommandToTerminal = useCallback((command: string) => {
+    if (renderMode === 'abstracted') {
+      // In abstracted mode, let HybridTerminal handle it via event
+      window.dispatchEvent(new CustomEvent('command-from-palette', { detail: command }))
+      return
+    }
+
     const activeTab = tabs.find(t => t.id === activeTabId)
     if (activeTab?.terminalId !== null && activeTab?.terminalId !== undefined) {
       window.terminal.write(activeTab.terminalId, command + '\r')
     }
-  }, [tabs, activeTabId])
+  }, [tabs, activeTabId, renderMode])
 
   // Handle folder open - change terminal directory and update tab cwd
   const handleOpenFolder = useCallback((folderPath: string) => {
@@ -39,6 +57,37 @@ export default function App() {
       updateTabCwd(activeTabId, folderPath)
     }
   }, [sendCommandToTerminal, activeTabId, updateTabCwd])
+
+  // Handle git clone - send clone command to terminal
+  const handleGitClone = useCallback((destPath: string, url: string) => {
+    const escapedPath = destPath.includes(' ') ? `"${destPath}"` : destPath
+    const escapedUrl = url.includes(' ') ? `"${url}"` : url
+    sendCommandToTerminal(`pushd ${escapedPath} && git clone ${escapedUrl}`)
+    if (activeTabId) {
+      updateTabCwd(activeTabId, destPath)
+    }
+  }, [sendCommandToTerminal, activeTabId, updateTabCwd])
+
+  // Focus terminal input after creating a new tab
+  const focusTerminal = useCallback(() => {
+    setTimeout(() => window.dispatchEvent(new CustomEvent('focus-terminal')), 300)
+  }, [])
+
+  // Folder select handler - creates new tab with that folder
+  const handleFolderSelectNewTab = useCallback((path: string) => {
+    addTab(path, path)
+    focusTerminal()
+  }, [addTab, focusTerminal])
+
+  // Git clone handler - creates new tab then clones
+  const handleGitCloneNewTab = useCallback((destPath: string, url: string) => {
+    addTab(destPath, destPath)
+    setTimeout(() => {
+      const escapedUrl = url.includes(' ') ? `"${url}"` : url
+      sendCommandToTerminal(`git clone ${escapedUrl}`)
+    }, 1000)
+    focusTerminal()
+  }, [addTab, sendCommandToTerminal, focusTerminal])
 
   // Restore session on app startup (clear stale terminal IDs)
   useEffect(() => {
@@ -60,11 +109,6 @@ export default function App() {
   const [editingFilePath, setEditingFilePath] = useState<string | null>(null)
 
   const activeConversation = activeConversationId ? getConversation(activeConversationId) : null
-
-  // Get active tab's cwd and explorerPath for file explorer
-  const activeTab = tabs.find(t => t.id === activeTabId)
-  const activeTabCwd = activeTab?.cwd
-  const activeExplorerPath = activeTab?.explorerPath
 
   // Keyboard shortcuts handler
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -209,69 +253,77 @@ export default function App() {
         onSettingsToggle={() => setSettingsOpen(!settingsOpen)}
         settingsOpen={settingsOpen}
       />
-      <div className="main-content">
-        <ResizablePanel side="left" defaultWidth={260} minWidth={180} maxWidth={500} isOpen={explorerOpen}>
-          <FileExplorer
-            isOpen={true}
-            onClose={() => setExplorerOpen(false)}
-            onFileSelect={(path) => {
-              setEditingFilePath(path)
-              setEditorOpen(true)
-            }}
-            onOpenFolder={handleOpenFolder}
-            onOpenInNewTab={(path) => addTab(path)}
-            currentCwd={activeTabCwd}
-            explorerPath={activeExplorerPath}
-            onExplorerPathChange={(path) => {
-              if (activeTabId) {
-                updateExplorerPath(activeTabId, path)
-              }
-            }}
+      {showDashboard ? (
+        <FullScreenWelcome
+          onFolderSelect={handleFolderSelectNewTab}
+          onGitClone={handleGitCloneNewTab}
+        />
+      ) : (
+        <div className="main-content">
+          <ResizablePanel side="left" defaultWidth={260} minWidth={180} maxWidth={500} isOpen={explorerOpen}>
+            <FileExplorer
+              isOpen={true}
+              onClose={() => setExplorerOpen(false)}
+              onFileSelect={(path) => {
+                setEditingFilePath(path)
+                setEditorOpen(true)
+              }}
+              onOpenFolder={handleOpenFolder}
+              onOpenInNewTab={(path) => { addTab(path, path); focusTerminal() }}
+              onGitClone={handleGitClone}
+              currentCwd={activeTabCwd}
+              explorerPath={activeExplorerPath}
+              onExplorerPathChange={(path) => {
+                if (activeTabId) {
+                  updateExplorerPath(activeTabId, path)
+                }
+              }}
+            />
+          </ResizablePanel>
+          <HistoryPanel
+            isOpen={historyOpen}
+            onClose={() => setHistoryOpen(false)}
+            onSelectConversation={() => setConversationViewOpen(true)}
           />
-        </ResizablePanel>
-        <HistoryPanel
-          isOpen={historyOpen}
-          onClose={() => setHistoryOpen(false)}
-          onSelectConversation={() => setConversationViewOpen(true)}
-        />
-        <main className="terminal-container">
-          {splitMode === 'none' ? (
-            // Render all terminals, but only show the active one
-            // This preserves terminal content when switching tabs
-            tabs.map(tab => (
-              <HybridTerminal
-                key={tab.id}
-                tabId={tab.id}
-                isActive={tab.id === activeTabId}
-              />
-            ))
-          ) : (
-            <SplitPane direction={splitMode}>
-              <HybridTerminal tabId={tabs[0]?.id} isActive={true} />
-              <HybridTerminal tabId={tabs[1]?.id ?? tabs[0]?.id} isActive={true} />
-            </SplitPane>
-          )}
-        </main>
-        <ConversationView
-          isOpen={conversationViewOpen}
-          onClose={() => setConversationViewOpen(false)}
-          messages={activeConversation?.messages ?? []}
-        />
-        <ResizablePanel side="right" defaultWidthPercent={40} minWidth={250} maxWidth={800} isOpen={editorOpen}>
-          <FileEditor
-            isOpen={true}
-            filePath={editingFilePath}
-            onClose={() => {
-              setEditorOpen(false)
-              setEditingFilePath(null)
-            }}
+          <main className="terminal-container">
+            {splitMode === 'none' ? (
+              // Render all terminals, but only show the active one
+              // Skip dashboard tab (no terminal needed)
+              tabs.filter(tab => !tab.isDashboard).map(tab => (
+                <HybridTerminal
+                  key={tab.id}
+                  tabId={tab.id}
+                  isActive={tab.id === activeTabId}
+                />
+              ))
+            ) : (
+              <SplitPane direction={splitMode}>
+                <HybridTerminal tabId={tabs.find(t => !t.isDashboard)?.id ?? tabs[0]?.id} isActive={true} />
+                <HybridTerminal tabId={tabs.filter(t => !t.isDashboard)[1]?.id ?? tabs.find(t => !t.isDashboard)?.id ?? tabs[0]?.id} isActive={true} />
+              </SplitPane>
+            )}
+          </main>
+          <ConversationView
+            isOpen={conversationViewOpen}
+            onClose={() => setConversationViewOpen(false)}
+            messages={activeConversation?.messages ?? []}
           />
-        </ResizablePanel>
-        <SettingsPanel
-          isOpen={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-        />
-      </div>
+          <ResizablePanel side="right" defaultWidthPercent={40} minWidth={250} maxWidth={800} isOpen={editorOpen}>
+            <FileEditor
+              isOpen={true}
+              filePath={editingFilePath}
+              onClose={() => {
+                setEditorOpen(false)
+                setEditingFilePath(null)
+              }}
+            />
+          </ResizablePanel>
+          <SettingsPanel
+            isOpen={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+          />
+        </div>
+      )}
       <CommandPalette
         isOpen={commandPaletteOpen}
         onClose={() => {

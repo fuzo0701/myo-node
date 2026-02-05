@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useExplorerStore } from '../store/explorer'
 
 interface FileNode {
   name: string
@@ -15,6 +16,7 @@ interface FileExplorerProps {
   onFileSelect?: (path: string) => void
   onOpenFolder?: (path: string) => void
   onOpenInNewTab?: (path: string) => void
+  onGitClone?: (destPath: string, url: string) => void
   currentCwd?: string
   explorerPath?: string  // 탭별 저장된 탐색기 경로
   onExplorerPathChange?: (path: string | undefined) => void  // 탐색기 경로 변경 콜백
@@ -242,7 +244,179 @@ function FileTreeItem({
   )
 }
 
-export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFolder, onOpenInNewTab, currentCwd, explorerPath, onExplorerPathChange }: FileExplorerProps) {
+// Git branch icon for clone dialog
+const GitIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="18" cy="18" r="3" />
+    <circle cx="6" cy="6" r="3" />
+    <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+    <line x1="6" y1="9" x2="6" y2="21" />
+  </svg>
+)
+
+// Large folder icon for welcome hero
+const LargeFolderIcon = (
+  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+  </svg>
+)
+
+function ExplorerWelcome({
+  onClose,
+  onOpenFolder,
+  onGitClone,
+  onExplorerPathChange,
+  onNavigateToFolder,
+}: {
+  onClose: () => void
+  onOpenFolder?: (path: string) => void
+  onGitClone?: (destPath: string, url: string) => void
+  onExplorerPathChange?: (path: string | undefined) => void
+  onNavigateToFolder: (path: string) => void
+}) {
+  const { recentFolders, addRecentFolder, removeRecentFolder } = useExplorerStore()
+  const [cloneDialogOpen, setCloneDialogOpen] = useState(false)
+  const [cloneDestPath, setCloneDestPath] = useState('')
+  const [cloneUrl, setCloneUrl] = useState('')
+
+  const handleOpenFolder = useCallback(async () => {
+    const folderPath = await window.dialog?.openFolder({ title: 'Open Folder' })
+    if (folderPath) {
+      addRecentFolder(folderPath)
+      onExplorerPathChange?.(folderPath)
+      onOpenFolder?.(folderPath)
+      onNavigateToFolder(folderPath)
+    }
+  }, [addRecentFolder, onExplorerPathChange, onOpenFolder, onNavigateToFolder])
+
+  const handleGitCloneStart = useCallback(async () => {
+    const folderPath = await window.dialog?.openFolder({ title: 'Select Clone Destination' })
+    if (folderPath) {
+      setCloneDestPath(folderPath)
+      setCloneUrl('')
+      setCloneDialogOpen(true)
+    }
+  }, [])
+
+  const handleCloneConfirm = useCallback(() => {
+    if (!cloneDestPath || !cloneUrl.trim()) return
+    addRecentFolder(cloneDestPath)
+    onExplorerPathChange?.(cloneDestPath)
+    onGitClone?.(cloneDestPath, cloneUrl.trim())
+    onNavigateToFolder(cloneDestPath)
+    setCloneDialogOpen(false)
+  }, [cloneDestPath, cloneUrl, addRecentFolder, onExplorerPathChange, onGitClone, onNavigateToFolder])
+
+  const handleRecentClick = useCallback((path: string) => {
+    addRecentFolder(path)
+    onExplorerPathChange?.(path)
+    onOpenFolder?.(path)
+    onNavigateToFolder(path)
+  }, [addRecentFolder, onExplorerPathChange, onOpenFolder, onNavigateToFolder])
+
+  return (
+    <div className="explorer-welcome">
+      <div className="welcome-header">
+        <h2>Explorer</h2>
+        <div className="file-explorer-actions">
+          <button className="explorer-action-btn" onClick={onClose} title="Close">
+            {Icons.close}
+          </button>
+        </div>
+      </div>
+
+      <div className="welcome-hero">
+        <div className="welcome-hero-icon">{LargeFolderIcon}</div>
+        <h3>Open a Folder</h3>
+        <p>Browse files or clone a repository to get started.</p>
+      </div>
+
+      <div className="welcome-actions">
+        <button className="welcome-action-btn" onClick={handleOpenFolder}>
+          {Icons.openFolder}
+          <span>Open Folder</span>
+        </button>
+        <button className="welcome-action-btn" onClick={handleGitCloneStart}>
+          {GitIcon}
+          <span>Git Clone</span>
+        </button>
+      </div>
+
+      {recentFolders.length > 0 && (
+        <div className="welcome-recent">
+          <div className="welcome-recent-title">Recent Folders</div>
+          <div className="welcome-recent-list">
+            {recentFolders.map((folder) => (
+              <button
+                key={folder.path}
+                className="welcome-recent-item"
+                onClick={() => handleRecentClick(folder.path)}
+              >
+                {Icons.folder}
+                <div className="welcome-recent-item-info">
+                  <span className="welcome-recent-item-name">{folder.name}</span>
+                  <span className="welcome-recent-item-path">{folder.path}</span>
+                </div>
+                <span
+                  className="welcome-recent-item-remove"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    removeRecentFolder(folder.path)
+                  }}
+                >
+                  {Icons.close}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Git Clone Dialog */}
+      {cloneDialogOpen && (
+        <div className="rename-dialog-overlay" onClick={() => setCloneDialogOpen(false)}>
+          <div className="git-clone-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>{GitIcon} Git Clone</h3>
+            <div className="git-clone-field">
+              <label>Destination</label>
+              <div className="path-display">{cloneDestPath}</div>
+            </div>
+            <div className="git-clone-field">
+              <label>Repository URL</label>
+              <input
+                type="text"
+                placeholder="https://github.com/user/repo.git"
+                value={cloneUrl}
+                onChange={(e) => setCloneUrl(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCloneConfirm()
+                  if (e.key === 'Escape') setCloneDialogOpen(false)
+                }}
+              />
+            </div>
+            <div className="git-clone-actions">
+              <button onClick={() => setCloneDialogOpen(false)}>Cancel</button>
+              <button
+                className="primary"
+                disabled={!cloneUrl.trim()}
+                onClick={handleCloneConfirm}
+              >
+                Clone
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFolder, onOpenInNewTab, onGitClone, currentCwd, explorerPath, onExplorerPathChange }: FileExplorerProps) {
+  const [viewMode, setViewMode] = useState<'welcome' | 'tree'>(
+    explorerPath ? 'tree' : 'welcome'
+  )
+  const { addRecentFolder } = useExplorerStore()
   const [rootPath, setRootPath] = useState<string>('')
   const [tree, setTree] = useState<FileNode[]>([])
   const [loading, setLoading] = useState(false)
@@ -656,35 +830,31 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
     const explorerPathChanged = lastExplorerPathRef.current !== explorerPath
     lastExplorerPathRef.current = explorerPath
 
-    // 사용할 경로 결정
-    const targetPath = explorerPath || currentCwd
-
-    if (!targetPath || targetPath === '~') return
-
-    const normalizedTarget = normalizePath(targetPath)
-    const normalizedRoot = rootPath ? normalizePath(rootPath) : ''
-
-    // 탭 전환 시 또는 경로가 다를 때 로드
-    if (explorerPathChanged || normalizedTarget !== normalizedRoot) {
-      loadDirectory(targetPath)
+    // explorerPath가 있으면 tree 모드, 없으면 welcome
+    if (explorerPath) {
+      setViewMode('tree')
+      const normalizedTarget = normalizePath(explorerPath)
+      const normalizedRoot = rootPath ? normalizePath(rootPath) : ''
+      if (explorerPathChanged || normalizedTarget !== normalizedRoot) {
+        loadDirectory(explorerPath)
+      }
+    } else if (explorerPathChanged) {
+      // explorerPath가 undefined로 변경 → welcome으로 전환
+      setViewMode('welcome')
     }
-  }, [isOpen, explorerPath, currentCwd, rootPath, loadDirectory, normalizePath])
+  }, [isOpen, explorerPath, rootPath, loadDirectory, normalizePath])
 
-  // Initial load when explorer opens with no rootPath
+  // Initial load when explorer opens - only if explorerPath is set
   useEffect(() => {
     if (!isOpen || rootPath) return
 
-    const targetPath = explorerPath || currentCwd
-    if (targetPath && targetPath !== '~') {
-      loadDirectory(targetPath)
+    if (explorerPath) {
+      setViewMode('tree')
+      loadDirectory(explorerPath)
     } else {
-      window.fileSystem?.getCurrentDirectory().then((cwd: string) => {
-        if (cwd) {
-          loadDirectory(cwd)
-        }
-      })
+      setViewMode('welcome')
     }
-  }, [isOpen, rootPath, explorerPath, currentCwd, loadDirectory])
+  }, [isOpen, rootPath, explorerPath, loadDirectory])
 
   // Watch for file system changes
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -726,6 +896,24 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
 
   if (!isOpen) return null
 
+  // Navigate to folder (switches from welcome to tree view)
+  const navigateToFolder = (path: string) => {
+    setViewMode('tree')
+    loadDirectory(path)
+  }
+
+  if (viewMode === 'welcome') {
+    return (
+      <ExplorerWelcome
+        onClose={onClose}
+        onOpenFolder={onOpenFolder}
+        onGitClone={onGitClone}
+        onExplorerPathChange={onExplorerPathChange}
+        onNavigateToFolder={navigateToFolder}
+      />
+    )
+  }
+
   return (
     <div
       className="file-explorer"
@@ -741,6 +929,7 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
             onClick={async () => {
               const folderPath = await window.dialog?.openFolder({ title: 'Open Folder' })
               if (folderPath) {
+                addRecentFolder(folderPath)
                 // 탭별 탐색기 경로 저장
                 onExplorerPathChange?.(folderPath)
                 loadDirectory(folderPath)

@@ -4,6 +4,8 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import ClaudeRenderer from './ClaudeRenderer'
+import OutputArea, { OutputBlock } from './OutputArea'
+import TerminalInput, { TerminalInputHandle } from './TerminalInput'
 import { useThemeStore } from '../store/theme'
 import { useHistoryStore } from '../store/history'
 import { useSettingsStore } from '../store/settings'
@@ -38,6 +40,11 @@ interface ClaudeBlock {
 
 // Throttle interval for streaming updates (ms)
 const STREAMING_THROTTLE_MS = 16 // ~60fps
+
+let outputBlockIdCounter = 0
+function nextBlockId(): string {
+  return `blk-${Date.now()}-${++outputBlockIdCounter}`
+}
 
 export default function HybridTerminal({ tabId, isActive = true }: HybridTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -81,6 +88,18 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     setClaudeStatusRef.current = setClaudeStatus
     tabIdRef.current = tabId
   }, [setClaudeStatus, tabId])
+
+  // === Abstracted mode state ===
+  const [outputBlocks, setOutputBlocks] = useState<OutputBlock[]>([])
+  const currentOutputRef = useRef<string>('')
+  const currentBlockTypeRef = useRef<'output' | 'claude'>('output')
+  const echoSuppressRef = useRef<string | null>(null)
+  const terminalInputRef = useRef<TerminalInputHandle>(null)
+  // Keep renderMode in a ref for use inside callbacks
+  const renderModeRef = useRef(renderMode)
+  useEffect(() => {
+    renderModeRef.current = renderMode
+  }, [renderMode])
 
   // Patterns to detect command prompt (Claude session ended)
   const promptPatterns = useMemo(() => [
@@ -235,6 +254,44 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     currentBlockRef.current = ''
   }, [])
 
+  // === Abstracted mode: finalize current output block ===
+  const finalizeOutputBlock = useCallback(() => {
+    const content = currentOutputRef.current
+    if (content.trim()) {
+      const blockType = currentBlockTypeRef.current
+      setOutputBlocks((prev) => {
+        const last = prev[prev.length - 1]
+        if (last?.isStreaming && last.type === blockType) {
+          return [
+            ...prev.slice(0, -1),
+            { ...last, content, isStreaming: false },
+          ]
+        }
+        return prev
+      })
+    }
+    currentOutputRef.current = ''
+    currentBlockTypeRef.current = 'output'
+  }, [])
+
+  // === Abstracted mode: schedule streaming update for output blocks ===
+  const scheduleOutputBlockUpdate = useCallback((content: string, blockType: 'output' | 'claude') => {
+    setOutputBlocks((prev) => {
+      const last = prev[prev.length - 1]
+      if (last?.isStreaming && last.type === blockType) {
+        return [
+          ...prev.slice(0, -1),
+          { ...last, content, isStreaming: true },
+        ]
+      } else {
+        return [
+          ...prev,
+          { id: nextBlockId(), type: blockType, content, timestamp: Date.now(), isStreaming: true },
+        ]
+      }
+    })
+  }, [])
+
   const handleTerminalData = useCallback((data: string) => {
     // Always write to xterm - terminal output should always be visible
     terminalRef.current?.write(data)
@@ -262,6 +319,13 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
         conversationIdRef.current = newId
         console.log('[History] Auto-created conversation:', newId)
       }
+
+      // Abstracted mode: switch block type to claude
+      if (renderModeRef.current === 'abstracted') {
+        // Finalize any pending output block
+        finalizeOutputBlock()
+        currentBlockTypeRef.current = 'claude'
+      }
     }
 
     // Update status when Claude is active
@@ -283,6 +347,11 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
         setIsClaudeActive(false)
         finalizeBlock()
         console.log('[Status] Claude completed (prompt returned)')
+
+        // Abstracted mode: finalize output block on prompt return
+        if (renderModeRef.current === 'abstracted') {
+          finalizeOutputBlock()
+        }
       } else {
         // Start loading timer - if no output for 2 seconds, show "loading"
         claudeLoadingTimerRef.current = setTimeout(() => {
@@ -292,6 +361,40 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
           }
         }, CLAUDE_LOADING_DEBOUNCE_MS)
       }
+    }
+
+    // === Abstracted mode: accumulate output into blocks ===
+    if (renderModeRef.current === 'abstracted') {
+      // Echo suppression: skip data that matches the command we just sent
+      if (echoSuppressRef.current) {
+        const stripped = strippedData.trim()
+        if (stripped && echoSuppressRef.current.includes(stripped)) {
+          echoSuppressRef.current = null
+          return
+        }
+        // If we get a newline right after command, suppress it
+        if (stripped === '') {
+          return
+        }
+        echoSuppressRef.current = null
+      }
+
+      // Prompt return in abstracted mode: finalize and don't add prompt to output
+      if (isPromptReturn && !isClaudeActiveRef.current) {
+        finalizeOutputBlock()
+        return
+      }
+
+      // Accumulate raw data for ANSI conversion
+      currentOutputRef.current += data
+
+      // Schedule a streaming update
+      if (currentBlockTypeRef.current === 'claude') {
+        scheduleOutputBlockUpdate(stripAnsi(currentOutputRef.current), 'claude')
+      } else {
+        scheduleOutputBlockUpdate(currentOutputRef.current, 'output')
+      }
+      return
     }
 
     // Visual rendering for Claude output (hybrid/rendered mode only)
@@ -315,7 +418,59 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
         }
       }, CLAUDE_END_DEBOUNCE_MS)
     }
-  }, [renderMode, detectClaudeOutput, scheduleBlockUpdate, finalizeBlock, stripAnsi, promptPatterns])
+  }, [renderMode, detectClaudeOutput, scheduleBlockUpdate, finalizeBlock, stripAnsi, promptPatterns, finalizeOutputBlock, scheduleOutputBlockUpdate])
+
+  // === Abstracted mode: command submit handler ===
+  const handleCommandSubmit = useCallback((command: string) => {
+    if (ptyIdRef.current === null) return
+
+    // Finalize any in-progress output block
+    finalizeOutputBlock()
+
+    // Add command block
+    setOutputBlocks((prev) => [
+      ...prev,
+      {
+        id: nextBlockId(),
+        type: 'command',
+        content: command,
+        timestamp: Date.now(),
+        isStreaming: false,
+      },
+    ])
+
+    // Set up echo suppression for the command
+    echoSuppressRef.current = command
+
+    // Reset block type
+    currentBlockTypeRef.current = 'output'
+    currentOutputRef.current = ''
+
+    // Send to PTY
+    window.terminal.write(ptyIdRef.current, command + '\r')
+
+    // Claude command detection for history
+    const isClaudeCommand = command.match(/^claude\b/i)
+    if (isClaudeCommand) {
+      const newId = createConversationRef.current(tabCwdRef.current)
+      conversationIdRef.current = newId
+      addMessageRef.current(conversationIdRef.current, 'user', command)
+      if (tabIdRef.current) {
+        setClaudeStatusRef.current(tabIdRef.current, 'running')
+        isClaudeActiveRef.current = true
+        setIsClaudeActive(true)
+      }
+    } else if (conversationIdRef.current) {
+      addMessageRef.current(conversationIdRef.current, 'user', command)
+    }
+  }, [finalizeOutputBlock])
+
+  // === Abstracted mode: signal handler ===
+  const handleSignal = useCallback((signal: string) => {
+    if (ptyIdRef.current !== null) {
+      window.terminal.write(ptyIdRef.current, signal)
+    }
+  }, [])
 
   // User input handler - uses refs to always have current values
   const handleUserInput = useCallback((data: string) => {
@@ -504,7 +659,10 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
 
       // Create PTY with tab's cwd
       const initPty = async () => {
-        const { cols, rows } = terminal
+        // In abstracted mode, xterm is hidden (1px) so cols/rows are tiny.
+        // Use reasonable defaults so PTY output isn't wrapped at 1-2 chars.
+        const cols = terminal.cols > 10 ? terminal.cols : 120
+        const rows = terminal.rows > 5 ? terminal.rows : 30
         const id = await window.terminal.create(cols, rows, tabCwd, shell)
         ptyIdRef.current = id
         setPtyId(id)
@@ -521,8 +679,12 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
           }
         }
 
-        // Focus terminal after initialization
-        terminal.focus()
+        // Focus: in abstracted mode focus the textarea, otherwise focus xterm
+        if (renderModeRef.current === 'abstracted') {
+          terminalInputRef.current?.focus()
+        } else {
+          terminal.focus()
+        }
       }
 
       initPty()
@@ -533,7 +695,10 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
           fitAddon.fit()
           if (ptyIdRef.current !== null) {
             const { cols, rows } = terminal
-            window.terminal.resize(ptyIdRef.current, cols, rows)
+            // Don't send tiny sizes to PTY (happens in abstracted mode where xterm is 1px)
+            if (cols > 10 && rows > 5) {
+              window.terminal.resize(ptyIdRef.current, cols, rows)
+            }
           }
         } catch (e) {
           // Ignore resize errors
@@ -569,6 +734,21 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       if (id === ptyId) {
         setIsClaudeActive(false)
         terminalRef.current?.write(`\r\n[Process exited with code ${exitCode}]\r\n`)
+
+        // Abstracted mode: add system block
+        if (renderModeRef.current === 'abstracted') {
+          finalizeOutputBlock()
+          setOutputBlocks((prev) => [
+            ...prev,
+            {
+              id: nextBlockId(),
+              type: 'system',
+              content: `[Process exited with code ${exitCode}]`,
+              timestamp: Date.now(),
+              isStreaming: false,
+            },
+          ])
+        }
       }
     })
 
@@ -576,7 +756,7 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       unsubData()
       unsubExit()
     }
-  }, [ptyId, handleTerminalData])
+  }, [ptyId, handleTerminalData, finalizeOutputBlock])
 
   // Update theme
   useEffect(() => {
@@ -594,27 +774,46 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
 
   // Focus input bar when tab becomes active and refit terminal
   useEffect(() => {
-    if (terminalRef.current && tabId && isActive) {
-      // Small delay to ensure DOM is ready
+    if (tabId && isActive) {
+      // Use short delay for normal tab switch, longer for initial mount (e.g., from dashboard)
       const timer = setTimeout(() => {
-        // Refit in case window was resized while hidden
-        fitAddonRef.current?.fit()
-        terminalRef.current?.focus()
-      }, 50)
+        if (renderMode === 'abstracted') {
+          terminalInputRef.current?.focus()
+        } else {
+          fitAddonRef.current?.fit()
+          terminalRef.current?.focus()
+        }
+      }, 100)
       return () => clearTimeout(timer)
     }
-  }, [tabId, isActive])
+  }, [tabId, isActive, renderMode])
 
   // Listen for focus-terminal event (e.g., when closing command palette)
   useEffect(() => {
     const handleFocusTerminal = () => {
       if (isActive) {
-        terminalRef.current?.focus()
+        if (renderMode === 'abstracted') {
+          terminalInputRef.current?.focus()
+        } else {
+          terminalRef.current?.focus()
+        }
       }
     }
     window.addEventListener('focus-terminal', handleFocusTerminal)
     return () => window.removeEventListener('focus-terminal', handleFocusTerminal)
-  }, [isActive])
+  }, [isActive, renderMode])
+
+  // Listen for command-from-palette event (App.tsx sends commands)
+  useEffect(() => {
+    const handlePaletteCommand = (e: Event) => {
+      const command = (e as CustomEvent<string>).detail
+      if (command && isActive && renderMode === 'abstracted') {
+        handleCommandSubmit(command)
+      }
+    }
+    window.addEventListener('command-from-palette', handlePaletteCommand)
+    return () => window.removeEventListener('command-from-palette', handlePaletteCommand)
+  }, [isActive, renderMode, handleCommandSubmit])
 
   // Memoize claude blocks rendering
   const claudeBlocksContent = useMemo(() => {
@@ -637,6 +836,28 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     return <div className="terminal-pane empty">No terminal selected</div>
   }
 
+  // === Abstracted mode render ===
+  if (renderMode === 'abstracted') {
+    return (
+      <div ref={containerRef} className={`hybrid-terminal ${isActive ? '' : 'hidden'}`}>
+        {/* Hidden xterm for PTY management */}
+        <div
+          ref={terminalContainerRef}
+          className="xterm-hidden"
+        />
+        {/* Output blocks area */}
+        <OutputArea blocks={outputBlocks} />
+        {/* Input bar */}
+        <TerminalInput
+          ref={terminalInputRef}
+          onSubmit={handleCommandSubmit}
+          onSignal={handleSignal}
+        />
+      </div>
+    )
+  }
+
+  // === Existing modes render ===
   return (
     <div ref={containerRef} className={`hybrid-terminal ${isActive ? '' : 'hidden'}`}>
       {/* Claude rendered output */}

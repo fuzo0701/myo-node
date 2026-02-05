@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type RenderMode = 'terminal' | 'hybrid' | 'rendered'
+export type RenderMode = 'terminal' | 'hybrid' | 'rendered' | 'abstracted'
 export type ShellType = 'default' | 'powershell' | 'cmd' | 'bash' | 'zsh'
 
 interface SettingsStore {
@@ -21,7 +21,7 @@ interface SettingsStore {
 export const useSettingsStore = create<SettingsStore>()(
   persist(
     (set) => ({
-      renderMode: 'terminal',
+      renderMode: 'abstracted',
       showThinking: true,
       autoScroll: true,
       compactMode: false,
