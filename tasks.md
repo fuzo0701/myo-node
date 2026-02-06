@@ -69,7 +69,7 @@
 - [x] 파일 에디터 (읽기/쓰기, 라인 넘버, 수정 표시, Ctrl+S 저장)
 - [x] 복사/잘라내기/붙여넣기 (Ctrl+C/X/V)
 - [x] 컨텍스트 메뉴 (우클릭)
-- [x] 새 파일/폴더 생성
+- [x] 새 파일/폴더 생성 — 다이얼로그 방식 (이름 입력 → 확인 후 생성, 중복 검사)
 - [x] 이름 바꾸기 (F2), 삭제 (Delete)
 - [x] Windows 탐색기와 클립보드 연동
 - [x] 폴더 열기 시 탐색기 + 터미널 동시 갱신
@@ -96,6 +96,7 @@
 - [x] Ctrl+Shift+P: 명령어 팔레트
 - [x] Ctrl+Shift+L: Claude 설정 패널 토글
 - [x] Ctrl+Shift+C: Claude 빠른 실행
+- [x] Ctrl+F: 텍스트 검색 (터미널/출력 영역/파일 에디터)
 - [x] Escape: 패널 닫기
 
 ### Phase 1 MVP — Claude 관리 기능 ✅
@@ -323,7 +324,7 @@
 ### 9. 탐색기 (확장) 🆕
 
 #### 9.1 파일 트리 개선
-- [ ] 숨김 파일 토글 (dotfile 표시/숨김 전환 버튼)
+- [x] 숨김 파일 토글 (dotfile 표시/숨김 전환 버튼) — 설정 store `showHiddenFiles` + 탐색기 헤더 눈 아이콘 토글
 - [ ] .gitignore 인식 필터링 (무시된 파일 흐리게 표시 또는 숨김)
 - [ ] Collapse All / Expand All 버튼
 - [ ] 정렬 옵션 (이름, 타입, 수정일, 크기)
@@ -747,6 +748,7 @@
 | `Ctrl+Shift+P` | 명령어 팔레트 |
 | `Ctrl+Shift+L` | Claude 설정 패널 토글 |
 | `Ctrl+Shift+C` | Claude 빠른 실행 |
+| `Ctrl+F` | 텍스트 검색 (터미널/출력/파일) |
 | `Escape` | 패널 닫기 |
 
 ### 실행 방법
