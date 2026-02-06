@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useExplorerStore } from '../store/explorer'
+import { useSettingsStore } from '../store/settings'
 
 interface FileNode {
   name: string
@@ -53,6 +54,31 @@ const getBasename = (filePath: string): string => {
 const joinPath = (dir: string, file: string): string => {
   const normalizedDir = dir.replace(/\\/g, '/').replace(/\/+$/, '')
   return `${normalizedDir}/${file}`
+}
+
+// Git status types
+type GitStatusCode = 'modified' | 'staged' | 'untracked' | 'deleted' | 'renamed' | 'conflict' | null
+
+interface GitStatusInfo {
+  status: GitStatusCode
+  badge: string
+}
+
+function resolveGitStatus(index: string, workTree: string): GitStatusInfo {
+  // Conflict: both modified
+  if (index === 'U' || workTree === 'U' || (index === 'A' && workTree === 'A') || (index === 'D' && workTree === 'D')) {
+    return { status: 'conflict', badge: '!' }
+  }
+  // Work tree modifications take priority for display
+  if (workTree === 'M') return { status: 'modified', badge: 'M' }
+  if (workTree === 'D') return { status: 'deleted', badge: 'D' }
+  if (workTree === '?') return { status: 'untracked', badge: '?' }
+  // Index (staged) statuses
+  if (index === 'M') return { status: 'staged', badge: 'M' }
+  if (index === 'A') return { status: 'staged', badge: 'A' }
+  if (index === 'D') return { status: 'deleted', badge: 'D' }
+  if (index === 'R') return { status: 'renamed', badge: 'R' }
+  return { status: null, badge: '' }
 }
 
 // SVG Icons
@@ -155,59 +181,126 @@ const Icons = {
   ),
 }
 
-// File type icon mapping
-const getFileIcon = (filename: string) => {
-  const ext = filename.split('.').pop()?.toLowerCase()
-  const iconColors: Record<string, string> = {
-    ts: '#3178C6',
-    tsx: '#3178C6',
-    js: '#F7DF1E',
-    jsx: '#F7DF1E',
-    json: '#CBCB41',
-    css: '#264DE4',
-    scss: '#CC6699',
-    html: '#E34F26',
-    md: '#083FA1',
-    py: '#3776AB',
-    go: '#00ADD8',
-    rs: '#DEA584',
-    vue: '#4FC08D',
-    svg: '#FFB13B',
+// File type icon color mapping
+const FILE_ICON_COLORS: Record<string, string> = {
+  // JavaScript / TypeScript
+  ts: '#3178C6', tsx: '#3178C6', mts: '#3178C6', cts: '#3178C6',
+  js: '#F7DF1E', jsx: '#F7DF1E', mjs: '#F7DF1E', cjs: '#F7DF1E',
+  // Web
+  html: '#E34F26', htm: '#E34F26',
+  css: '#264DE4', scss: '#CC6699', sass: '#CC6699', less: '#1D365D',
+  vue: '#4FC08D', svelte: '#FF3E00', astro: '#FF5D01',
+  // Data / Config
+  json: '#CBCB41', jsonc: '#CBCB41', json5: '#CBCB41',
+  yaml: '#CB171E', yml: '#CB171E',
+  toml: '#9C4121', ini: '#9C4121',
+  xml: '#E37933', xsl: '#E37933',
+  csv: '#237346', tsv: '#237346',
+  env: '#ECD53F',
+  // Markdown / Docs
+  md: '#083FA1', mdx: '#083FA1', txt: '#6A737D', rst: '#6A737D',
+  // Python
+  py: '#3776AB', pyw: '#3776AB', pyi: '#3776AB', ipynb: '#F37626',
+  // Systems
+  go: '#00ADD8',
+  rs: '#DEA584',
+  c: '#555555', h: '#555555',
+  cpp: '#F34B7D', cxx: '#F34B7D', cc: '#F34B7D', hpp: '#F34B7D',
+  cs: '#178600',
+  java: '#B07219', kt: '#A97BFF', kts: '#A97BFF',
+  swift: '#F05138',
+  // Scripting
+  rb: '#CC342D', erb: '#CC342D',
+  php: '#4F5D95',
+  lua: '#000080',
+  pl: '#0298C3', pm: '#0298C3',
+  sh: '#89E051', bash: '#89E051', zsh: '#89E051', fish: '#89E051',
+  bat: '#C1F12E', cmd: '#C1F12E', ps1: '#012456',
+  // Database
+  sql: '#E38C00', sqlite: '#E38C00', db: '#E38C00',
+  // Images
+  svg: '#FFB13B',
+  png: '#A074C4', jpg: '#A074C4', jpeg: '#A074C4', gif: '#A074C4',
+  webp: '#A074C4', ico: '#A074C4', bmp: '#A074C4',
+  // Archives
+  zip: '#8B6914', tar: '#8B6914', gz: '#8B6914', rar: '#8B6914', '7z': '#8B6914',
+  // Build / Lock
+  lock: '#6A737D',
+  // Docker / DevOps
+  dockerfile: '#2496ED',
+  // Misc
+  log: '#6A737D', diff: '#41B883', patch: '#41B883',
+  wasm: '#654FF0', zig: '#F7A41D',
+  pdf: '#E4002B',
+}
+
+// Special filename matching (dotfiles, specific filenames)
+const SPECIAL_FILE_COLORS: Record<string, string> = {
+  '.gitignore': '#F05033', '.gitattributes': '#F05033', '.gitmodules': '#F05033',
+  '.dockerignore': '#2496ED', 'dockerfile': '#2496ED', 'docker-compose.yml': '#2496ED', 'docker-compose.yaml': '#2496ED',
+  '.eslintrc': '#4B32C3', '.eslintrc.js': '#4B32C3', '.eslintrc.json': '#4B32C3', '.eslintignore': '#4B32C3',
+  '.prettierrc': '#F7B93E', '.prettierrc.json': '#F7B93E', '.prettierignore': '#F7B93E',
+  'makefile': '#427819', 'cmakelists.txt': '#427819',
+  '.editorconfig': '#FEFEFE',
+  'license': '#D22128', 'license.md': '#D22128',
+  'readme.md': '#083FA1',
+}
+
+const getFileIcon = (filename: string): string => {
+  const lower = filename.toLowerCase()
+  // Check special filenames first
+  if (SPECIAL_FILE_COLORS[lower]) return SPECIAL_FILE_COLORS[lower]
+  // Then check extension
+  const ext = lower.split('.').pop()
+  return FILE_ICON_COLORS[ext || ''] || 'var(--text-muted)'
+}
+
+// Flatten visible tree nodes in display order
+function flattenVisibleNodes(nodes: FileNode[]): FileNode[] {
+  const result: FileNode[] = []
+  for (const node of nodes) {
+    result.push(node)
+    if (node.type === 'directory' && node.expanded && node.children) {
+      result.push(...flattenVisibleNodes(node.children))
+    }
   }
-  return iconColors[ext || ''] || 'var(--text-muted)'
+  return result
 }
 
 function FileTreeItem({
   node,
   depth,
   onToggle,
-  onSelect,
+  onClick,
   onContextMenu,
-  isSelected,
-  isCut,
+  selectedPaths,
+  cutPaths,
+  gitStatusMap,
 }: {
   node: FileNode
   depth: number
   onToggle: (path: string) => void
-  onSelect: (path: string, type: 'file' | 'directory') => void
+  onClick: (e: React.MouseEvent, path: string, type: 'file' | 'directory') => void
   onContextMenu: (e: React.MouseEvent, path: string, type: 'file' | 'directory') => void
-  isSelected: boolean
-  isCut: boolean
+  selectedPaths: Set<string>
+  cutPaths: string[]
+  gitStatusMap: Map<string, GitStatusInfo>
 }) {
   const isDirectory = node.type === 'directory'
+  const isSelected = selectedPaths.has(node.path)
+  const isCut = cutPaths.includes(node.path)
   const paddingLeft = 12 + depth * 16
+  const gitInfo = gitStatusMap.get(node.path)
+  const gitClass = gitInfo?.status ? `git-${gitInfo.status}` : ''
 
   return (
     <>
       <div
-        className={`file-tree-item ${isSelected && !isDirectory ? 'selected' : ''} ${isCut ? 'cut' : ''}`}
+        className={`file-tree-item ${isSelected ? 'selected' : ''} ${isCut ? 'cut' : ''}`}
         style={{ paddingLeft }}
-        onClick={() => {
-          // Set selected path for files only
-          if (!isDirectory) {
-            onSelect(node.path, node.type)
-          } else {
-            // Just toggle directory
+        onClick={(e) => {
+          onClick(e, node.path, node.type)
+          if (isDirectory && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
             onToggle(node.path)
           }
         }}
@@ -222,7 +315,10 @@ function FileTreeItem({
         >
           {isDirectory ? (node.expanded ? Icons.folderOpen : Icons.folder) : Icons.file}
         </span>
-        <span className="file-tree-name">{node.name}</span>
+        <span className={`file-tree-name ${gitClass}`}>{node.name}</span>
+        {gitInfo?.badge && (
+          <span className={`git-status-badge ${gitClass}`}>{gitInfo.badge}</span>
+        )}
       </div>
       {isDirectory && node.expanded && node.children && (
         <div className="file-tree-children">
@@ -232,10 +328,11 @@ function FileTreeItem({
               node={child}
               depth={depth + 1}
               onToggle={onToggle}
-              onSelect={onSelect}
+              onClick={onClick}
               onContextMenu={onContextMenu}
-              isSelected={isSelected}
-              isCut={isCut}
+              selectedPaths={selectedPaths}
+              cutPaths={cutPaths}
+              gitStatusMap={gitStatusMap}
             />
           ))}
         </div>
@@ -417,11 +514,14 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
     explorerPath ? 'tree' : 'welcome'
   )
   const { addRecentFolder } = useExplorerStore()
+  const showHiddenFiles = useSettingsStore((s) => s.showHiddenFiles)
+  const setShowHiddenFiles = useSettingsStore((s) => s.setShowHiddenFiles)
   const [rootPath, setRootPath] = useState<string>('')
   const [tree, setTree] = useState<FileNode[]>([])
   const [loading, setLoading] = useState(false)
-  const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
   const [selectedType, setSelectedType] = useState<'file' | 'directory' | null>(null)
+  const anchorPathRef = useRef<string | null>(null)  // For Shift+Click range selection
   const [clipboardState, setClipboardState] = useState<ClipboardState>({ paths: [], operation: null })
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     isOpen: false,
@@ -431,18 +531,70 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
     targetType: 'background',
   })
   const [renameState, setRenameState] = useState<{ path: string; name: string } | null>(null)
+  const [createState, setCreateState] = useState<{ type: 'file' | 'folder'; targetDir: string } | null>(null)
+  const [gitStatusMap, setGitStatusMap] = useState<Map<string, GitStatusInfo>>(new Map())
+  const gitRepoRootRef = useRef<string | null>(null)
   const explorerRef = useRef<HTMLDivElement>(null)
 
+  const fetchGitStatus = useCallback(async (dirPath: string) => {
+    try {
+      const repoRoot = await window.git?.getRepoRoot(dirPath)
+      gitRepoRootRef.current = repoRoot || null
+      if (!repoRoot) {
+        setGitStatusMap(new Map())
+        return
+      }
+      const statusData = await window.git?.getStatus(repoRoot)
+      if (!statusData) {
+        setGitStatusMap(new Map())
+        return
+      }
+      const normalizedRoot = repoRoot.replace(/\\/g, '/')
+      const newMap = new Map<string, GitStatusInfo>()
+      // Track which directories have modified children
+      const dirStatuses = new Map<string, GitStatusCode>()
+
+      for (const [relPath, { index, workTree }] of Object.entries(statusData)) {
+        const info = resolveGitStatus(index, workTree)
+        if (!info.status) continue
+        const fullPath = `${normalizedRoot}/${relPath}`
+        newMap.set(fullPath, info)
+        // Propagate status to parent directories
+        const parts = relPath.split('/')
+        for (let i = 1; i < parts.length; i++) {
+          const dirRelPath = parts.slice(0, i).join('/')
+          const dirFullPath = `${normalizedRoot}/${dirRelPath}`
+          // Priority: conflict > deleted > modified > staged > untracked > renamed
+          const existing = dirStatuses.get(dirFullPath)
+          const priority: Record<string, number> = { conflict: 6, deleted: 5, modified: 4, staged: 3, untracked: 2, renamed: 1 }
+          const newPriority = priority[info.status] || 0
+          const existingPriority = existing ? (priority[existing] || 0) : 0
+          if (newPriority > existingPriority) {
+            dirStatuses.set(dirFullPath, info.status)
+          }
+        }
+      }
+      // Add directory statuses
+      for (const [dirPath, status] of dirStatuses) {
+        if (!newMap.has(dirPath)) {
+          const badgeMap: Record<string, string> = { modified: 'M', staged: 'M', untracked: '?', deleted: 'D', renamed: 'R', conflict: '!' }
+          newMap.set(dirPath, { status, badge: badgeMap[status] || '' })
+        }
+      }
+      setGitStatusMap(newMap)
+    } catch {
+      setGitStatusMap(new Map())
+    }
+  }, [])
+
   const loadDirectory = useCallback(async (dirPath: string) => {
-    console.log('[FileExplorer] loadDirectory called with:', dirPath)
     setLoading(true)
     try {
       // Use Electron IPC to read directory
       const entries = await window.fileSystem?.readDirectory(dirPath)
-      console.log('[FileExplorer] entries:', entries?.length, entries)
       if (entries) {
         const nodes: FileNode[] = entries
-          .filter((entry: { name: string }) => !entry.name.startsWith('.'))
+          .filter((entry: { name: string }) => showHiddenFiles || !entry.name.startsWith('.'))
           .sort((a: { type: string; name: string }, b: { type: string; name: string }) => {
             // Directories first, then files
             if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
@@ -457,20 +609,78 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
           }))
         setTree(nodes)
         setRootPath(dirPath)
+        // Fetch git status after loading directory
+        fetchGitStatus(dirPath)
       }
     } catch (error) {
       console.error('Failed to load directory:', error)
     } finally {
       setLoading(false)
     }
+  }, [fetchGitStatus, showHiddenFiles])
+
+  // Helper: build entries into FileNode[]
+  const buildNodes = useCallback((dirPath: string, entries: Array<{ name: string; type: 'file' | 'directory' }>): FileNode[] => {
+    return entries
+      .filter((entry) => showHiddenFiles || !entry.name.startsWith('.'))
+      .sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
+        return a.name.localeCompare(b.name)
+      })
+      .map((entry) => ({
+        name: entry.name,
+        path: `${dirPath}/${entry.name}`.replace(/\\/g, '/'),
+        type: entry.type,
+        expanded: false,
+        children: entry.type === 'directory' ? [] : undefined,
+      }))
+  }, [showHiddenFiles])
+
+  // Collect expanded paths from tree
+  const collectExpandedPaths = useCallback((nodes: FileNode[]): Set<string> => {
+    const expanded = new Set<string>()
+    const walk = (items: FileNode[]) => {
+      for (const node of items) {
+        if (node.expanded) {
+          expanded.add(node.path)
+          if (node.children) walk(node.children)
+        }
+      }
+    }
+    walk(nodes)
+    return expanded
   }, [])
+
+  // Refresh tree preserving expanded state
+  const refreshTree = useCallback(async () => {
+    if (!rootPath) return
+    const expandedPaths = collectExpandedPaths(tree)
+
+    // Rebuild tree recursively, re-expanding previously expanded dirs
+    const rebuildDir = async (dirPath: string): Promise<FileNode[]> => {
+      const entries = await window.fileSystem?.readDirectory(dirPath)
+      if (!entries) return []
+      const nodes = buildNodes(dirPath, entries)
+      // Re-expand previously expanded directories
+      for (let i = 0; i < nodes.length; i++) {
+        if (nodes[i].type === 'directory' && expandedPaths.has(nodes[i].path)) {
+          const children = await rebuildDir(nodes[i].path)
+          nodes[i] = { ...nodes[i], expanded: true, children }
+        }
+      }
+      return nodes
+    }
+
+    const newTree = await rebuildDir(rootPath)
+    setTree(newTree)
+    fetchGitStatus(rootPath)
+  }, [rootPath, tree, buildNodes, collectExpandedPaths, fetchGitStatus])
 
   const toggleDirectory = useCallback(async (path: string) => {
     setTree((prevTree) => {
       const updateNode = (nodes: FileNode[]): FileNode[] => {
         return nodes.map((node) => {
           if (node.path === path) {
-            console.log('[toggleDirectory] path:', path, 'expanded:', node.expanded, 'children:', node.children?.length)
             if (!node.expanded && node.children?.length === 0) {
               // Load children asynchronously
               isExpandingRef.current = true
@@ -478,7 +688,7 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
                 isExpandingRef.current = false
                 if (entries) {
                   const children: FileNode[] = entries
-                    .filter((entry) => !entry.name.startsWith('.'))
+                    .filter((entry) => showHiddenFiles || !entry.name.startsWith('.'))
                     .sort((a, b) => {
                       if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
                       return a.name.localeCompare(b.name)
@@ -518,21 +728,54 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
       }
       return updateNode(prevTree)
     })
-  }, [])
+  }, [showHiddenFiles])
 
-  const handleFileSelect = useCallback((path: string, type: 'file' | 'directory') => {
-    setSelectedPath(path)
+  // Click handler with Shift/Ctrl multi-select support
+  const handleItemClick = useCallback((e: React.MouseEvent, path: string, type: 'file' | 'directory') => {
+    if (e.shiftKey && anchorPathRef.current) {
+      // Shift+Click: range select from anchor to clicked item
+      const visible = flattenVisibleNodes(tree)
+      const anchorIdx = visible.findIndex(n => n.path === anchorPathRef.current)
+      const clickIdx = visible.findIndex(n => n.path === path)
+      if (anchorIdx !== -1 && clickIdx !== -1) {
+        const start = Math.min(anchorIdx, clickIdx)
+        const end = Math.max(anchorIdx, clickIdx)
+        const rangePaths = visible.slice(start, end + 1).map(n => n.path)
+        setSelectedPaths(new Set(rangePaths))
+      }
+    } else if (e.ctrlKey || e.metaKey) {
+      // Ctrl+Click: toggle individual selection
+      setSelectedPaths(prev => {
+        const next = new Set(prev)
+        if (next.has(path)) {
+          next.delete(path)
+        } else {
+          next.add(path)
+        }
+        return next
+      })
+      anchorPathRef.current = path
+    } else {
+      // Normal click: single select
+      setSelectedPaths(new Set([path]))
+      anchorPathRef.current = path
+    }
     setSelectedType(type)
-    if (type === 'file') {
+    if (type === 'file' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
       onFileSelect?.(path)
     }
-  }, [onFileSelect])
+  }, [onFileSelect, tree])
 
   // Context menu handler
   const handleContextMenu = useCallback((e: React.MouseEvent, targetPath: string, targetType: 'file' | 'directory' | 'background') => {
     e.preventDefault()
     e.stopPropagation()
-    setSelectedPath(targetPath || null)
+    explorerRef.current?.focus()
+    // Add to selection if not already selected, otherwise keep multi-selection
+    if (targetPath && !selectedPaths.has(targetPath)) {
+      setSelectedPaths(new Set([targetPath]))
+      anchorPathRef.current = targetPath
+    }
     if (targetType !== 'background') {
       setSelectedType(targetType)
     }
@@ -558,69 +801,76 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
       targetPath,
       targetType,
     })
-  }, [])
+  }, [selectedPaths])
 
   // Close context menu
   const closeContextMenu = useCallback(() => {
     setContextMenu(prev => ({ ...prev, isOpen: false }))
   }, [])
 
-  // Copy selected file/folder
+  // Copy selected file/folder(s)
   const handleCopy = useCallback(async () => {
-    if (selectedPath) {
-      setClipboardState({ paths: [selectedPath], operation: 'copy' })
-      await window.clipboard?.writeFiles([selectedPath])
+    if (selectedPaths.size > 0) {
+      const paths = Array.from(selectedPaths)
+      setClipboardState({ paths, operation: 'copy' })
+      await window.clipboard?.writeFiles(paths)
     }
     closeContextMenu()
-  }, [selectedPath, closeContextMenu])
+  }, [selectedPaths, closeContextMenu])
 
-  // Cut selected file/folder
+  // Cut selected file/folder(s)
   const handleCut = useCallback(async () => {
-    if (selectedPath) {
-      setClipboardState({ paths: [selectedPath], operation: 'cut' })
-      await window.clipboard?.writeFiles([selectedPath])
+    if (selectedPaths.size > 0) {
+      const paths = Array.from(selectedPaths)
+      setClipboardState({ paths, operation: 'cut' })
+      await window.clipboard?.writeFiles(paths)
     }
     closeContextMenu()
-  }, [selectedPath, closeContextMenu])
+  }, [selectedPaths, closeContextMenu])
 
   // Paste from clipboard
   const handlePaste = useCallback(async () => {
     closeContextMenu()
 
     // Determine destination directory
-    // Priority: contextMenu target > selectedPath > rootPath
+    // Only use contextMenu target when menu is actually open (right-click paste)
+    // Otherwise use current selectedPath (keyboard Ctrl+V)
     let destDir = rootPath
 
-    if (contextMenu.targetPath) {
-      // From context menu
+    if (contextMenu.isOpen && contextMenu.targetPath) {
       if (contextMenu.targetType === 'directory') {
         destDir = contextMenu.targetPath
       } else {
         destDir = getParentDirectory(contextMenu.targetPath)
       }
-    } else if (selectedPath) {
-      // From keyboard shortcut - use cached selectedType
+    } else if (selectedPaths.size > 0) {
+      // Use last selected path as destination hint
+      const lastSelected = Array.from(selectedPaths).pop()!
       if (selectedType === 'directory') {
-        destDir = selectedPath
+        destDir = lastSelected
       } else {
-        destDir = getParentDirectory(selectedPath)
+        destDir = getParentDirectory(lastSelected)
       }
     }
 
-    // Always try system clipboard first (for external copy)
+    // Determine source: internal clipboard state vs system clipboard
     let sourcePaths: string[] = []
-    try {
-      const systemFiles = await window.clipboard?.readFiles()
-      if (systemFiles && systemFiles.length > 0) {
-        sourcePaths = systemFiles
-      }
-    } catch {
-      // Error reading system clipboard, continue to internal state
-    }
+    let isInternalCut = false
 
-    // If system clipboard is empty, use internal clipboard state
-    if (sourcePaths.length === 0 && clipboardState.paths.length > 0) {
+    // Check if internal clipboard has a pending cut/copy operation
+    if (clipboardState.paths.length > 0 && clipboardState.operation) {
       sourcePaths = clipboardState.paths
+      isInternalCut = clipboardState.operation === 'cut'
+    } else {
+      // Fallback to system clipboard (for external copy from Windows Explorer etc.)
+      try {
+        const systemFiles = await window.clipboard?.readFiles()
+        if (systemFiles && systemFiles.length > 0) {
+          sourcePaths = systemFiles
+        }
+      } catch {
+        // Error reading system clipboard
+      }
     }
 
     if (sourcePaths.length === 0) {
@@ -631,6 +881,11 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
     for (const sourcePath of sourcePaths) {
       const basename = getBasename(sourcePath)
       let destPath = joinPath(destDir, basename)
+
+      // Prevent pasting into itself
+      if (sourcePath === destDir || destDir.startsWith(sourcePath + '/')) {
+        continue
+      }
 
       // Check if destination exists and generate unique name
       let counter = 1
@@ -651,23 +906,23 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
         await window.fileSystem?.copyFile(sourcePath, destPath)
       }
 
-      // If cut operation, delete the source
-      if (clipboardState.operation === 'cut') {
+      // Only delete source for internal cut operation (not system clipboard paste)
+      if (isInternalCut) {
         await window.fileSystem?.delete(sourcePath)
       }
     }
 
     // Clear clipboard state if it was a cut operation
-    if (clipboardState.operation === 'cut') {
+    if (isInternalCut) {
       setClipboardState({ paths: [], operation: null })
     }
 
-    // File watcher will automatically refresh the view
-    // No need to call loadDirectory which resets expanded state
-  }, [contextMenu, clipboardState, rootPath, selectedPath, selectedType, closeContextMenu])
+    // Refresh to show pasted files (preserve expanded state)
+    refreshTree()
+  }, [contextMenu, clipboardState, rootPath, selectedPaths, selectedType, closeContextMenu, refreshTree])
 
-  // Create new file
-  const handleNewFile = useCallback(async () => {
+  // Create new file - open name dialog first
+  const handleNewFile = useCallback(() => {
     closeContextMenu()
     let targetDir = rootPath
     if (contextMenu.targetType === 'directory') {
@@ -675,23 +930,11 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
     } else if (contextMenu.targetPath) {
       targetDir = getParentDirectory(contextMenu.targetPath)
     }
+    setCreateState({ type: 'file', targetDir })
+  }, [contextMenu, rootPath, closeContextMenu])
 
-    // Generate unique filename
-    let filename = 'new_file.txt'
-    let counter = 1
-    while (await window.fileSystem?.exists(joinPath(targetDir, filename))) {
-      filename = `new_file (${counter}).txt`
-      counter++
-    }
-
-    const newPath = joinPath(targetDir, filename)
-    await window.fileSystem?.writeFile(newPath, '')
-    loadDirectory(rootPath)
-    setRenameState({ path: newPath, name: filename })
-  }, [contextMenu, rootPath, closeContextMenu, loadDirectory])
-
-  // Create new folder
-  const handleNewFolder = useCallback(async () => {
+  // Create new folder - open name dialog first
+  const handleNewFolder = useCallback(() => {
     closeContextMenu()
     let targetDir = rootPath
     if (contextMenu.targetType === 'directory') {
@@ -699,20 +942,28 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
     } else if (contextMenu.targetPath) {
       targetDir = getParentDirectory(contextMenu.targetPath)
     }
+    setCreateState({ type: 'folder', targetDir })
+  }, [contextMenu, rootPath, closeContextMenu])
 
-    // Generate unique folder name
-    let foldername = 'New Folder'
-    let counter = 1
-    while (await window.fileSystem?.exists(joinPath(targetDir, foldername))) {
-      foldername = `New Folder (${counter})`
-      counter++
+  // Confirm create - actually create the file/folder
+  const confirmCreate = useCallback(async (name: string) => {
+    if (!createState || !name.trim()) return
+    const newPath = joinPath(createState.targetDir, name.trim())
+
+    if (await window.fileSystem?.exists(newPath)) {
+      alert(`"${name.trim()}" already exists.`)
+      return
     }
 
-    const newPath = joinPath(targetDir, foldername)
-    await window.fileSystem?.createDirectory(newPath)
-    loadDirectory(rootPath)
-    setRenameState({ path: newPath, name: foldername })
-  }, [contextMenu, rootPath, closeContextMenu, loadDirectory])
+    if (createState.type === 'file') {
+      await window.fileSystem?.writeFile(newPath, '')
+    } else {
+      await window.fileSystem?.createDirectory(newPath)
+    }
+
+    setCreateState(null)
+    refreshTree()
+  }, [createState, refreshTree])
 
   // Rename file/folder
   const handleRename = useCallback(() => {
@@ -731,23 +982,34 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
 
     if (newPath !== renameState.path) {
       await window.fileSystem?.rename(renameState.path, newPath)
-      loadDirectory(rootPath)
+      refreshTree()
     }
 
     setRenameState(null)
-  }, [renameState, rootPath, loadDirectory])
+  }, [renameState, rootPath, refreshTree])
 
-  // Delete file/folder
+  // Delete file/folder(s) - supports multi-select
   const handleDelete = useCallback(async () => {
     closeContextMenu()
-    if (!contextMenu.targetPath) return
+    // Determine paths to delete: use selected paths if multiple, else context menu target
+    const pathsToDelete = selectedPaths.size > 1
+      ? Array.from(selectedPaths)
+      : contextMenu.targetPath ? [contextMenu.targetPath] : Array.from(selectedPaths)
 
-    const basename = getBasename(contextMenu.targetPath)
-    if (confirm(`Are you sure you want to delete "${basename}"?`)) {
-      await window.fileSystem?.delete(contextMenu.targetPath)
-      loadDirectory(rootPath)
+    if (pathsToDelete.length === 0) return
+
+    const message = pathsToDelete.length === 1
+      ? `Are you sure you want to delete "${getBasename(pathsToDelete[0])}"?`
+      : `Are you sure you want to delete ${pathsToDelete.length} items?`
+
+    if (confirm(message)) {
+      for (const p of pathsToDelete) {
+        await window.fileSystem?.delete(p)
+      }
+      setSelectedPaths(new Set())
+      refreshTree()
     }
-  }, [contextMenu, rootPath, closeContextMenu, loadDirectory])
+  }, [contextMenu, selectedPaths, closeContextMenu, refreshTree])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -757,46 +1019,55 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
       // Only handle if explorer is focused or active element is body
       const explorerFocused = explorerRef.current?.contains(document.activeElement)
       const bodyFocused = document.activeElement === document.body
+      if (!explorerFocused && !bodyFocused) return
+
+      // If user has text selected (e.g. in file viewer), let browser handle copy natively
+      const textSelection = window.getSelection()
+      const hasTextSelection = textSelection && textSelection.toString().length > 0
 
       if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-        if (!explorerFocused && !bodyFocused) {
-          return
-        }
+        if (hasTextSelection) return  // Allow native copy
         e.preventDefault()
-        if (selectedPath) {
-          setClipboardState({ paths: [selectedPath], operation: 'copy' })
-          window.clipboard?.writeFiles([selectedPath])
+        if (selectedPaths.size > 0) {
+          const paths = Array.from(selectedPaths)
+          setClipboardState({ paths, operation: 'copy' })
+          window.clipboard?.writeFiles(paths)
         }
-        return
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'x') {
+        if (hasTextSelection) return  // Allow native cut
         e.preventDefault()
-        if (selectedPath) {
-          setClipboardState({ paths: [selectedPath], operation: 'cut' })
-          window.clipboard?.writeFiles([selectedPath])
+        if (selectedPaths.size > 0) {
+          const paths = Array.from(selectedPaths)
+          setClipboardState({ paths, operation: 'cut' })
+          window.clipboard?.writeFiles(paths)
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
         e.preventDefault()
         handlePaste()
       } else if (e.key === 'Delete') {
         e.preventDefault()
-        if (selectedPath) {
-          const basename = getBasename(selectedPath)
-          if (confirm(`Are you sure you want to delete "${basename}"?`)) {
-            window.fileSystem?.delete(selectedPath).then(() => {
-              loadDirectory(rootPath)
-              setSelectedPath(null)
+        if (selectedPaths.size > 0) {
+          const paths = Array.from(selectedPaths)
+          const message = paths.length === 1
+            ? `Are you sure you want to delete "${getBasename(paths[0])}"?`
+            : `Are you sure you want to delete ${paths.length} items?`
+          if (confirm(message)) {
+            Promise.all(paths.map(p => window.fileSystem?.delete(p))).then(() => {
+              refreshTree()
+              setSelectedPaths(new Set())
             })
           }
         }
-      } else if (e.key === 'F2' && selectedPath) {
+      } else if (e.key === 'F2' && selectedPaths.size === 1) {
         e.preventDefault()
-        setRenameState({ path: selectedPath, name: getBasename(selectedPath) })
+        const path = Array.from(selectedPaths)[0]
+        setRenameState({ path, name: getBasename(path) })
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, selectedPath, handlePaste, rootPath, loadDirectory])
+  }, [isOpen, selectedPaths, handlePaste, refreshTree])
 
   // Close context menu when clicking outside
   useEffect(() => {
@@ -820,9 +1091,9 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
 
   // Track last explorerPath to detect tab switches
   const lastExplorerPathRef = useRef<string | undefined>(explorerPath)
+  const loadedPathRef = useRef<string | null>(null)
 
-  // Load directory when explorerPath or currentCwd changes
-  // Priority: explorerPath (수동 선택) > currentCwd (터미널 경로)
+  // Load directory when explorerPath changes (tab switch or manual selection)
   useEffect(() => {
     if (!isOpen) return
 
@@ -834,65 +1105,32 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
     if (explorerPath) {
       setViewMode('tree')
       const normalizedTarget = normalizePath(explorerPath)
-      const normalizedRoot = rootPath ? normalizePath(rootPath) : ''
-      if (explorerPathChanged || normalizedTarget !== normalizedRoot) {
+      const normalizedLoaded = loadedPathRef.current ? normalizePath(loadedPathRef.current) : ''
+      // Only load if path actually changed
+      if (explorerPathChanged && normalizedTarget !== normalizedLoaded) {
+        loadedPathRef.current = explorerPath
+        loadDirectory(explorerPath)
+      } else if (!loadedPathRef.current) {
+        // Initial load
+        loadedPathRef.current = explorerPath
         loadDirectory(explorerPath)
       }
     } else if (explorerPathChanged) {
       // explorerPath가 undefined로 변경 → welcome으로 전환
       setViewMode('welcome')
+      loadedPathRef.current = null
     }
-  }, [isOpen, explorerPath, rootPath, loadDirectory, normalizePath])
+  }, [isOpen, explorerPath, loadDirectory, normalizePath])
 
-  // Initial load when explorer opens - only if explorerPath is set
+  // Reload tree when showHiddenFiles changes
   useEffect(() => {
-    if (!isOpen || rootPath) return
-
-    if (explorerPath) {
-      setViewMode('tree')
-      loadDirectory(explorerPath)
-    } else {
-      setViewMode('welcome')
+    if (rootPath) {
+      refreshTree()
     }
-  }, [isOpen, rootPath, explorerPath, loadDirectory])
+  }, [showHiddenFiles]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Watch for file system changes
-  const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
+  // Ref to prevent refresh during folder expansion
   const isExpandingRef = useRef<boolean>(false)
-
-  useEffect(() => {
-    if (!isOpen || !rootPath) return
-
-    // Start watching the root directory
-    window.fileSystem?.watch(rootPath)
-
-    // Listen for file system changes
-    const unsubscribe = window.fileSystem?.onFsChange((dirPath, _eventType, _filename) => {
-      // Skip refresh while expanding folders (reading directory content triggers fs events)
-      if (isExpandingRef.current) {
-        return
-      }
-      // Refresh the tree when changes detected in watched directory
-      if (dirPath === rootPath || dirPath.startsWith(rootPath)) {
-        // Debounce: wait 300ms before refreshing
-        if (refreshTimerRef.current) {
-          clearTimeout(refreshTimerRef.current)
-        }
-        refreshTimerRef.current = setTimeout(() => {
-          loadDirectory(rootPath)
-        }, 300)
-      }
-    })
-
-    return () => {
-      // Stop watching and clean up
-      if (refreshTimerRef.current) {
-        clearTimeout(refreshTimerRef.current)
-      }
-      window.fileSystem?.unwatch(rootPath)
-      unsubscribe?.()
-    }
-  }, [isOpen, rootPath, loadDirectory])
 
   if (!isOpen) return null
 
@@ -939,6 +1177,26 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
             title="Open Folder"
           >
             {Icons.openFolder}
+          </button>
+          <button
+            className={`explorer-action-btn ${showHiddenFiles ? 'active' : ''}`}
+            onClick={() => setShowHiddenFiles(!showHiddenFiles)}
+            title={showHiddenFiles ? 'Hide Hidden Files' : 'Show Hidden Files'}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              {showHiddenFiles ? (
+                <>
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </>
+              ) : (
+                <>
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </>
+              )}
+            </svg>
           </button>
           <button
             className="explorer-action-btn"
@@ -988,7 +1246,7 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
         <span className="path-icon">{Icons.home}</span>
         <span className="path-text">{rootPath.split(/[/\\]/).pop() || rootPath}</span>
       </div>
-      <div className="file-explorer-tree">
+      <div className="file-explorer-tree" onClick={() => explorerRef.current?.focus()}>
         {loading ? (
           <div className="file-explorer-loading">Loading...</div>
         ) : tree.length === 0 ? (
@@ -1000,10 +1258,11 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
               node={node}
               depth={0}
               onToggle={toggleDirectory}
-              onSelect={handleFileSelect}
+              onClick={handleItemClick}
               onContextMenu={handleContextMenu}
-              isSelected={selectedPath === node.path}
-              isCut={clipboardState.operation === 'cut' && clipboardState.paths.includes(node.path)}
+              selectedPaths={selectedPaths}
+              cutPaths={clipboardState.operation === 'cut' ? clipboardState.paths : []}
+              gitStatusMap={gitStatusMap}
             />
           ))
         )}
@@ -1106,6 +1365,39 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
                 }}
               >
                 Rename
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create File/Folder Dialog */}
+      {createState && (
+        <div className="rename-dialog-overlay" onClick={() => setCreateState(null)}>
+          <div className="rename-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>{createState.type === 'file' ? 'New File' : 'New Folder'}</h3>
+            <input
+              type="text"
+              placeholder={createState.type === 'file' ? 'filename.txt' : 'Folder Name'}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  confirmCreate((e.target as HTMLInputElement).value)
+                } else if (e.key === 'Escape') {
+                  setCreateState(null)
+                }
+              }}
+            />
+            <div className="rename-dialog-actions">
+              <button onClick={() => setCreateState(null)}>Cancel</button>
+              <button
+                className="primary"
+                onClick={(e) => {
+                  const input = (e.target as HTMLButtonElement).parentElement?.previousElementSibling as HTMLInputElement
+                  confirmCreate(input.value)
+                }}
+              >
+                Create
               </button>
             </div>
           </div>

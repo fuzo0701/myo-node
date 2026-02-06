@@ -8,6 +8,7 @@ export interface Tab {
   cwd: string
   isDashboard?: boolean  // 대시보드 탭 (항상 첫 번째, 터미널 없음)
   explorerPath?: string  // 탭별 탐색기 경로 (수동 선택 시 설정)
+  editingFilePath?: string | null  // 탭별 파일 에디터 경로
   terminalId?: number
   claudeStatus: ClaudeStatus
 }
@@ -22,6 +23,7 @@ interface TabStore {
   updateTabTitle: (id: string, title: string) => void
   updateTabCwd: (id: string, cwd: string) => void
   updateExplorerPath: (id: string, path: string | undefined) => void
+  updateEditingFilePath: (id: string, filePath: string | null) => void
   setTerminalId: (tabId: string, terminalId: number) => void
   setClaudeStatus: (tabId: string, status: ClaudeStatus) => void
   reorderTabs: (fromIndex: number, toIndex: number) => void
@@ -98,6 +100,11 @@ export const useTabStore = create<TabStore>()((set, get) => ({
   updateExplorerPath: (id, path) =>
     set((state) => ({
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, explorerPath: path } : t)),
+    })),
+
+  updateEditingFilePath: (id, filePath) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) => (t.id === id ? { ...t, editingFilePath: filePath } : t)),
     })),
 
   setTerminalId: (tabId, terminalId) =>

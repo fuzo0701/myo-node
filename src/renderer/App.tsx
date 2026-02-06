@@ -11,12 +11,14 @@ import FileEditor from './components/FileEditor'
 import ResizablePanel from './components/ResizablePanel'
 import CommandPalette from './components/CommandPalette'
 import FullScreenWelcome from './components/FullScreenWelcome'
+import ClaudeSettingsPanel from './components/ClaudeSettingsPanel'
+import StatusBar from './components/StatusBar'
 import { useTabStore } from './store/tabs'
 import { useHistoryStore } from './store/history'
 import { useSettingsStore } from './store/settings'
 
 export default function App() {
-  const { tabs, activeTabId, addTab, removeTab, setActiveTab, reorderTabs, restoreSession, updateTabCwd, updateExplorerPath } = useTabStore()
+  const { tabs, activeTabId, addTab, removeTab, setActiveTab, reorderTabs, restoreSession, updateTabCwd, updateExplorerPath, updateEditingFilePath } = useTabStore()
   const { getConversation, activeConversationId } = useHistoryStore()
   const [splitMode, setSplitModeState] = useState<'none' | 'horizontal' | 'vertical'>('none')
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
@@ -94,6 +96,15 @@ export default function App() {
     restoreSession()
   }, [restoreSession])
 
+  // Focus terminal input when window regains focus (e.g., Alt+Tab back)
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      window.dispatchEvent(new CustomEvent('focus-terminal'))
+    }
+    window.addEventListener('focus', handleWindowFocus)
+    return () => window.removeEventListener('focus', handleWindowFocus)
+  }, [])
+
   // Wrapper to ensure we have 2 tabs when split mode is activated
   const setSplitMode = useCallback((mode: 'none' | 'horizontal' | 'vertical') => {
     if (mode !== 'none' && tabs.length < 2) {
@@ -103,10 +114,13 @@ export default function App() {
   }, [tabs.length, addTab])
   const [historyOpen, setHistoryOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [claudeSettingsOpen, setClaudeSettingsOpen] = useState(false)
   const [conversationViewOpen, setConversationViewOpen] = useState(false)
   const [explorerOpen, setExplorerOpen] = useState(true)
-  const [editorOpen, setEditorOpen] = useState(false)
-  const [editingFilePath, setEditingFilePath] = useState<string | null>(null)
+
+  // 탭별 파일 에디터 상태 (전역 상태 대신 탭에서 가져옴)
+  const activeEditingFilePath = activeTab?.editingFilePath ?? null
+  const editorOpen = activeEditingFilePath !== null
 
   const activeConversation = activeConversationId ? getConversation(activeConversationId) : null
 
@@ -114,6 +128,14 @@ export default function App() {
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     const isMod = e.ctrlKey || e.metaKey
     const key = e.key.toLowerCase()
+
+    // Ctrl+F: Open search
+    if (isMod && key === 'f') {
+      e.preventDefault()
+      e.stopPropagation()
+      window.dispatchEvent(new CustomEvent('open-search'))
+      return
+    }
 
     // Ctrl+Shift+P: Open command palette
     if (isMod && e.shiftKey && key === 'p') {
@@ -125,6 +147,7 @@ export default function App() {
 
     // Ctrl+Shift+C: Quick Claude command
     if (isMod && e.shiftKey && key === 'c') {
+      if (showDashboard) return
       e.preventDefault()
       e.stopPropagation()
       sendCommandToTerminal('claude --dangerously-skip-permissions')
@@ -177,56 +200,81 @@ export default function App() {
       return
     }
 
-    // Ctrl+B: Toggle file explorer
-    if (isMod && key === 'b') {
-      e.preventDefault()
-      e.stopPropagation()
-      setExplorerOpen(prev => !prev)
-      return
-    }
-
-    // Ctrl+H: Toggle history panel
-    if (isMod && key === 'h') {
-      e.preventDefault()
-      e.stopPropagation()
-      setHistoryOpen(prev => !prev)
-      return
-    }
-
-    // Ctrl+,: Toggle settings
-    if (isMod && e.key === ',') {
-      e.preventDefault()
-      e.stopPropagation()
-      setSettingsOpen(prev => !prev)
-      return
-    }
-
-    // Ctrl+\: Toggle horizontal split, Ctrl+Shift+\ (or Ctrl+|): Vertical split
-    if (isMod && (e.key === '\\' || e.key === '|' || e.code === 'Backslash')) {
-      e.preventDefault()
-      e.stopPropagation()
-      if (e.shiftKey || e.key === '|') {
-        // Ctrl+Shift+\: Vertical split
-        setSplitMode(splitMode === 'vertical' ? 'none' : 'vertical')
-      } else {
-        // Ctrl+\: Horizontal split
-        setSplitMode(splitMode === 'horizontal' ? 'none' : 'horizontal')
+    // Skip panel/split shortcuts when Dashboard is active
+    if (!showDashboard) {
+      // Ctrl+B: Toggle file explorer
+      if (isMod && key === 'b') {
+        e.preventDefault()
+        e.stopPropagation()
+        setExplorerOpen(prev => !prev)
+        return
       }
-      return
+
+      // Ctrl+H: Toggle history panel
+      if (isMod && key === 'h') {
+        e.preventDefault()
+        e.stopPropagation()
+        setHistoryOpen(prev => !prev)
+        return
+      }
+
+      // Ctrl+,: Toggle settings
+      if (isMod && e.key === ',') {
+        e.preventDefault()
+        e.stopPropagation()
+        setSettingsOpen(prev => !prev)
+        return
+      }
+
+      // Ctrl+\: Toggle horizontal split, Ctrl+Shift+\ (or Ctrl+|): Vertical split
+      if (isMod && (e.key === '\\' || e.key === '|' || e.code === 'Backslash')) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.shiftKey || e.key === '|') {
+          // Ctrl+Shift+\: Vertical split
+          setSplitMode(splitMode === 'vertical' ? 'none' : 'vertical')
+        } else {
+          // Ctrl+\: Horizontal split
+          setSplitMode(splitMode === 'horizontal' ? 'none' : 'horizontal')
+        }
+        return
+      }
+
+      // Ctrl+Shift+L: Toggle Claude Settings panel
+      if (isMod && e.shiftKey && key === 'l') {
+        e.preventDefault()
+        e.stopPropagation()
+        setClaudeSettingsOpen(prev => !prev)
+        return
+      }
     }
 
-    // Escape: Close panels
+    // Escape: Close panels (only intercept if a panel is actually open)
     if (e.key === 'Escape') {
       if (conversationViewOpen) {
+        e.preventDefault()
+        e.stopPropagation()
         setConversationViewOpen(false)
+        return
+      } else if (claudeSettingsOpen) {
+        e.preventDefault()
+        e.stopPropagation()
+        setClaudeSettingsOpen(false)
+        return
       } else if (settingsOpen) {
+        e.preventDefault()
+        e.stopPropagation()
         setSettingsOpen(false)
+        return
       } else if (historyOpen) {
+        e.preventDefault()
+        e.stopPropagation()
         setHistoryOpen(false)
+        return
       }
-      return
+      // No panel open → let Escape pass through to terminal (e.g., stop Claude)
     }
-  }, [tabs, activeTabId, addTab, removeTab, setActiveTab, historyOpen, settingsOpen, conversationViewOpen, splitMode, setSplitMode, sendCommandToTerminal])
+  }, [tabs, activeTabId, addTab, removeTab, setActiveTab, historyOpen, settingsOpen, conversationViewOpen, splitMode, setSplitMode, sendCommandToTerminal, claudeSettingsOpen, showDashboard])
 
   // Register keyboard shortcuts - use capture phase to catch before xterm
   useEffect(() => {
@@ -252,6 +300,9 @@ export default function App() {
         historyOpen={historyOpen}
         onSettingsToggle={() => setSettingsOpen(!settingsOpen)}
         settingsOpen={settingsOpen}
+        onClaudeSettingsToggle={() => setClaudeSettingsOpen(!claudeSettingsOpen)}
+        claudeSettingsOpen={claudeSettingsOpen}
+        isDashboardActive={showDashboard}
       />
       {showDashboard ? (
         <FullScreenWelcome
@@ -265,8 +316,9 @@ export default function App() {
               isOpen={true}
               onClose={() => setExplorerOpen(false)}
               onFileSelect={(path) => {
-                setEditingFilePath(path)
-                setEditorOpen(true)
+                if (activeTabId) {
+                  updateEditingFilePath(activeTabId, path)
+                }
               }}
               onOpenFolder={handleOpenFolder}
               onOpenInNewTab={(path) => { addTab(path, path); focusTerminal() }}
@@ -278,6 +330,14 @@ export default function App() {
                   updateExplorerPath(activeTabId, path)
                 }
               }}
+            />
+          </ResizablePanel>
+          <ResizablePanel side="left" defaultWidth={280} minWidth={220} maxWidth={450} isOpen={claudeSettingsOpen}>
+            <ClaudeSettingsPanel
+              isOpen={claudeSettingsOpen}
+              onClose={() => setClaudeSettingsOpen(false)}
+              projectPath={activeTabCwd}
+              onSendCommand={sendCommandToTerminal}
             />
           </ResizablePanel>
           <HistoryPanel
@@ -311,19 +371,22 @@ export default function App() {
           <ResizablePanel side="right" defaultWidthPercent={40} minWidth={250} maxWidth={800} isOpen={editorOpen}>
             <FileEditor
               isOpen={true}
-              filePath={editingFilePath}
+              filePath={activeEditingFilePath}
               onClose={() => {
-                setEditorOpen(false)
-                setEditingFilePath(null)
+                if (activeTabId) {
+                  updateEditingFilePath(activeTabId, null)
+                }
               }}
             />
           </ResizablePanel>
           <SettingsPanel
             isOpen={settingsOpen}
             onClose={() => setSettingsOpen(false)}
+            projectPath={activeTabCwd}
           />
         </div>
       )}
+      <StatusBar />
       <CommandPalette
         isOpen={commandPaletteOpen}
         onClose={() => {

@@ -18,6 +18,9 @@ interface TabBarProps {
   historyOpen: boolean
   onSettingsToggle: () => void
   settingsOpen: boolean
+  onClaudeSettingsToggle: () => void
+  claudeSettingsOpen: boolean
+  isDashboardActive?: boolean
 }
 
 // Claude status indicator colors
@@ -89,6 +92,14 @@ const Icons = {
       <line x1="6" y1="6" x2="18" y2="18" />
     </svg>
   ),
+  claude: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2a5 5 0 015 5v1h1a3 3 0 010 6h-1v1a5 5 0 01-10 0v-1H6a3 3 0 010-6h1V7a5 5 0 015-5z" />
+      <circle cx="9.5" cy="10.5" r="1" fill="currentColor" />
+      <circle cx="14.5" cy="10.5" r="1" fill="currentColor" />
+      <path d="M9 14.5c.5.8 1.5 1.5 3 1.5s2.5-.7 3-1.5" />
+    </svg>
+  ),
 }
 
 export default function TabBar({
@@ -106,6 +117,9 @@ export default function TabBar({
   historyOpen,
   onSettingsToggle,
   settingsOpen,
+  onClaudeSettingsToggle,
+  claudeSettingsOpen,
+  isDashboardActive,
 }: TabBarProps) {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
@@ -207,6 +221,7 @@ export default function TabBar({
           className={`action-btn icon-btn ${explorerOpen ? 'active' : ''}`}
           onClick={onExplorerToggle}
           title="File Explorer (Ctrl+B)"
+          disabled={isDashboardActive}
         >
           {Icons.explorer}
         </button>
@@ -214,13 +229,24 @@ export default function TabBar({
           className={`action-btn icon-btn ${historyOpen ? 'active' : ''}`}
           onClick={onHistoryToggle}
           title="Conversation History"
+          disabled={isDashboardActive}
         >
           {Icons.history}
         </button>
         <button
+          className={`action-btn icon-btn ${claudeSettingsOpen ? 'active' : ''}`}
+          onClick={onClaudeSettingsToggle}
+          title="Claude Code Settings (Ctrl+Shift+L)"
+          disabled={isDashboardActive}
+        >
+          {Icons.claude}
+        </button>
+        <span className="action-divider" />
+        <button
           className={`action-btn icon-btn ${splitMode === 'horizontal' ? 'active' : ''}`}
           onClick={() => onSplitModeChange(splitMode === 'horizontal' ? 'none' : 'horizontal')}
           title="Split horizontal"
+          disabled={isDashboardActive}
         >
           {Icons.splitHorizontal}
         </button>
@@ -228,6 +254,7 @@ export default function TabBar({
           className={`action-btn icon-btn ${splitMode === 'vertical' ? 'active' : ''}`}
           onClick={() => onSplitModeChange(splitMode === 'vertical' ? 'none' : 'vertical')}
           title="Split vertical"
+          disabled={isDashboardActive}
         >
           {Icons.splitVertical}
         </button>
@@ -236,6 +263,7 @@ export default function TabBar({
           className={`action-btn icon-btn ${settingsOpen ? 'active' : ''}`}
           onClick={onSettingsToggle}
           title="Settings"
+          disabled={isDashboardActive}
         >
           {Icons.settings}
         </button>

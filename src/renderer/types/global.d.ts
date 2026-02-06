@@ -19,6 +19,7 @@ declare global {
       readDirectory: (path: string) => Promise<Array<{ name: string; type: 'file' | 'directory' }>>
       getCurrentDirectory: () => Promise<string>
       readFile: (path: string) => Promise<string | null>
+      readFileBase64: (path: string) => Promise<string | null>
       writeFile: (path: string, content: string) => Promise<boolean>
       watch: (path: string) => Promise<boolean>
       unwatch: (path: string) => Promise<boolean>
@@ -46,5 +47,118 @@ declare global {
     shell: {
       openExternal: (url: string) => Promise<boolean>
     }
+    git: {
+      getRepoRoot: (dirPath: string) => Promise<string | null>
+      getStatus: (repoRoot: string) => Promise<Record<string, { index: string; workTree: string }> | null>
+    }
+    claude: {
+      listSkills: () => Promise<Array<{ name: string; description: string }>>
+      readSkill: (name: string) => Promise<string | null>
+      writeSkill: (name: string, content: string) => Promise<boolean>
+      deleteSkill: (name: string) => Promise<boolean>
+      readMcpConfig: (scope: string, projectPath?: string) => Promise<Record<string, unknown>>
+      writeMcpConfig: (scope: string, servers: Record<string, unknown>, projectPath?: string) => Promise<boolean>
+      readClaudeMd: (scope: string, projectPath?: string) => Promise<string>
+      writeClaudeMd: (scope: string, content: string, projectPath?: string) => Promise<boolean>
+      readStatsCache: () => Promise<StatsCache | null>
+      getUsage: () => Promise<OAuthUsageResponse | null>
+      listProjects: () => Promise<string[]>
+      listSessions: (projectName: string) => Promise<SessionInfo[]>
+      readSession: (projectName: string, sessionId: string) => Promise<SessionMessage[]>
+      listPlans: () => Promise<PlanInfo[]>
+      readPlan: (planName: string) => Promise<string | null>
+      listTodos: () => Promise<TodoInfo[]>
+      readKeybindings: () => Promise<Record<string, unknown> | null>
+      fetchMarketplace: () => Promise<MarketplacePlugin[]>
+      getInstalledPlugins: () => Promise<string[]>
+    }
+  }
+
+  interface MarketplacePlugin {
+    name: string
+    description: string
+    version?: string
+    author?: { name: string; email?: string }
+    source?: string
+    category?: string
+    homepage?: string
+    marketplace: string
+    tags?: string[]
+    lspServers?: Record<string, unknown>
+  }
+
+  interface PlanInfo {
+    name: string
+    title: string
+    size: number
+    mtime: string
+  }
+
+  interface TodoInfo {
+    id: string
+    tasks: Array<{
+      id: string
+      subject: string
+      status: string
+      description?: string
+    }>
+    mtime: string
+  }
+
+  interface SessionInfo {
+    id: string
+    size: number
+    mtime: string
+    firstMessage: string
+  }
+
+  interface SessionMessage {
+    type: string
+    role?: string
+    content?: unknown
+    model?: string
+    timestamp?: string
+    usage?: {
+      input_tokens?: number
+      output_tokens?: number
+      cache_read_input_tokens?: number
+      cache_creation_input_tokens?: number
+    }
+  }
+
+  interface OAuthUsageResponse {
+    five_hour?: { utilization: number; resets_at: string }
+    seven_day?: { utilization: number; resets_at: string }
+    seven_day_sonnet?: { utilization: number; resets_at: string }
+    extra_usage?: { is_enabled: boolean; monthly_limit: number | null; used_credits: number | null; utilization: number | null }
+  }
+
+  interface StatsCacheModelUsage {
+    inputTokens: number
+    outputTokens: number
+    cacheCreationInputTokens: number
+    cacheReadInputTokens: number
+    costUSD: number
+  }
+
+  interface StatsCacheDailyActivity {
+    date: string
+    messageCount: number
+    sessionCount: number
+    toolCallCount: number
+  }
+
+  interface StatsCacheDailyModelTokens {
+    date: string
+    tokensByModel: Record<string, number>
+  }
+
+  interface StatsCache {
+    totalSessions: number
+    totalMessages: number
+    lastComputedDate: string
+    dailyActivity: StatsCacheDailyActivity[]
+    dailyModelTokens: StatsCacheDailyModelTokens[]
+    modelUsage: Record<string, StatsCacheModelUsage>
   }
 }

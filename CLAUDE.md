@@ -3,6 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 > **시작 전 확인**: `tasks.md` 파일에서 현재 진행 상황과 예정된 작업을 확인하세요.
+> **작업 완료 시**: 기능 구현이 완료되면 `tasks.md`의 해당 항목을 `[x]`로 체크하고, 구현 방식을 간단히 메모하세요.
 
 ## Project Overview
 
@@ -27,10 +28,11 @@ npm run dev
 npm run build
 
 # Package for distribution (release/ 폴더는 자동 정리됨, 수동 삭제 불필요)
-npm run package          # Current platform
-npm run package:win      # Windows (nsis, portable)
-npm run package:mac      # macOS (dmg, zip)
-npm run package:linux    # Linux (AppImage, deb)
+# ⚠️ 중요: 반드시 build 후 package 실행! (이전 빌드 결과물 패키징 방지)
+npm run build && npm run package          # Current platform
+npm run build && npm run package:win      # Windows (nsis, portable)
+npm run build && npm run package:mac      # macOS (dmg, zip)
+npm run build && npm run package:linux    # Linux (AppImage, deb)
 ```
 
 ## Architecture

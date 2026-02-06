@@ -3,6 +3,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as pty from 'node-pty'
 import * as os from 'os'
+import * as https from 'https'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 
@@ -179,6 +180,28 @@ ipcMain.handle('fs:readFile', async (_, filePath: string) => {
   }
 })
 
+ipcMain.handle('fs:readFileBase64', async (_, filePath: string) => {
+  try {
+    const buffer = await fs.promises.readFile(filePath)
+    const ext = path.extname(filePath).toLowerCase().slice(1)
+    const mimeTypes: Record<string, string> = {
+      png: 'image/png',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      gif: 'image/gif',
+      bmp: 'image/bmp',
+      webp: 'image/webp',
+      svg: 'image/svg+xml',
+      ico: 'image/x-icon',
+    }
+    const mime = mimeTypes[ext] || 'application/octet-stream'
+    return `data:${mime};base64,${buffer.toString('base64')}`
+  } catch (error) {
+    console.error('Failed to read file as base64:', error)
+    return null
+  }
+})
+
 ipcMain.handle('fs:writeFile', async (_, filePath: string, content: string) => {
   try {
     await fs.promises.writeFile(filePath, content, 'utf-8')
@@ -320,16 +343,70 @@ ipcMain.handle('fs:delete', async (_, filePath: string) => {
   }
 })
 
+// Git handlers
+ipcMain.handle('git:getRepoRoot', async (_, dirPath: string) => {
+  try {
+    const { stdout } = await execAsync('git rev-parse --show-toplevel', {
+      cwd: dirPath,
+      timeout: 5000,
+    })
+    return stdout.trim().replace(/\\/g, '/')
+  } catch {
+    return null
+  }
+})
+
+ipcMain.handle('git:getStatus', async (_, repoRoot: string) => {
+  try {
+    const { stdout } = await execAsync('git status --porcelain=v1 -uall', {
+      cwd: repoRoot,
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 10000,
+    })
+    const result: Record<string, { index: string; workTree: string }> = {}
+    for (const line of stdout.split('\n')) {
+      if (line.length < 4) continue
+      const index = line[0]
+      const workTree = line[1]
+      // Handle renamed files: "R  old -> new"
+      let filePath = line.substring(3)
+      if (filePath.includes(' -> ')) {
+        filePath = filePath.split(' -> ')[1]
+      }
+      result[filePath] = { index, workTree }
+    }
+    return result
+  } catch {
+    return null
+  }
+})
+
 // Clipboard file operations (Windows-specific using PowerShell)
+// Uses temp script file instead of EncodedCommand to avoid antivirus false positives
 async function runPowerShell(script: string): Promise<string> {
-  // Encode script as Base64 to avoid quoting issues
-  // Use -STA flag for clipboard access (requires Single-Threaded Apartment)
-  const encoded = Buffer.from(script, 'utf16le').toString('base64')
-  const { stdout } = await execAsync(`powershell -STA -NoProfile -EncodedCommand ${encoded}`, {
-    encoding: 'utf8',
-    env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
-  })
-  return stdout.trim()
+  const os = await import('os')
+  const tempDir = os.tmpdir()
+  const scriptPath = path.join(tempDir, `myo-clip-${Date.now()}.ps1`)
+
+  try {
+    // Write script to temp file with UTF-8 BOM for PowerShell compatibility
+    const bom = Buffer.from([0xEF, 0xBB, 0xBF])
+    await fs.promises.writeFile(scriptPath, Buffer.concat([bom, Buffer.from(script, 'utf8')]))
+
+    // Execute script file with -STA for clipboard access
+    const { stdout } = await execAsync(`powershell -STA -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`, {
+      encoding: 'utf8',
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+    })
+    return stdout.trim()
+  } finally {
+    // Clean up temp file
+    try {
+      await fs.promises.unlink(scriptPath)
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
 }
 
 ipcMain.handle('clipboard:writeFiles', async (_, paths: string[]) => {
@@ -542,6 +619,498 @@ ipcMain.handle('shell:openExternal', async (_, url: string) => {
   } catch (error) {
     console.error('Failed to open external URL:', error)
     return false
+  }
+})
+
+// Claude Skills handlers
+ipcMain.handle('claude:listSkills', async () => {
+  try {
+    const skillsDir = path.join(os.homedir(), '.claude', 'skills')
+    if (!fs.existsSync(skillsDir)) return []
+    const entries = await fs.promises.readdir(skillsDir, { withFileTypes: true })
+    const skills: { name: string; description: string }[] = []
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md')
+        try {
+          const content = await fs.promises.readFile(skillMdPath, 'utf-8')
+          const firstLine = content.split('\n').find(l => l.trim()) || ''
+          skills.push({ name: entry.name, description: firstLine })
+        } catch {
+          skills.push({ name: entry.name, description: '' })
+        }
+      }
+    }
+    return skills
+  } catch {
+    return []
+  }
+})
+
+ipcMain.handle('claude:readSkill', async (_, name: string) => {
+  try {
+    const skillPath = path.join(os.homedir(), '.claude', 'skills', name, 'SKILL.md')
+    return await fs.promises.readFile(skillPath, 'utf-8')
+  } catch {
+    return null
+  }
+})
+
+ipcMain.handle('claude:writeSkill', async (_, name: string, content: string) => {
+  try {
+    const skillDir = path.join(os.homedir(), '.claude', 'skills', name)
+    await fs.promises.mkdir(skillDir, { recursive: true })
+    await fs.promises.writeFile(path.join(skillDir, 'SKILL.md'), content, 'utf-8')
+    return true
+  } catch {
+    return false
+  }
+})
+
+ipcMain.handle('claude:deleteSkill', async (_, name: string) => {
+  try {
+    const skillDir = path.join(os.homedir(), '.claude', 'skills', name)
+    await fs.promises.rm(skillDir, { recursive: true, force: true })
+    return true
+  } catch {
+    return false
+  }
+})
+
+// Claude MCP config handlers
+ipcMain.handle('claude:readMcpConfig', async (_, scope: string, projectPath?: string) => {
+  try {
+    let configPath: string
+    if (scope === 'global') {
+      configPath = path.join(os.homedir(), '.claude', 'settings.json')
+    } else {
+      configPath = path.join(projectPath || process.cwd(), '.mcp.json')
+    }
+    const content = await fs.promises.readFile(configPath, 'utf-8')
+    const json = JSON.parse(content)
+    if (scope === 'global') {
+      return json.mcpServers || {}
+    }
+    return json.mcpServers || {}
+  } catch {
+    return {}
+  }
+})
+
+ipcMain.handle('claude:writeMcpConfig', async (_, scope: string, servers: Record<string, unknown>, projectPath?: string) => {
+  try {
+    let configPath: string
+    if (scope === 'global') {
+      configPath = path.join(os.homedir(), '.claude', 'settings.json')
+      // Merge with existing settings
+      let existing: Record<string, unknown> = {}
+      try {
+        const content = await fs.promises.readFile(configPath, 'utf-8')
+        existing = JSON.parse(content)
+      } catch { /* file doesn't exist */ }
+      existing.mcpServers = servers
+      await fs.promises.mkdir(path.dirname(configPath), { recursive: true })
+      await fs.promises.writeFile(configPath, JSON.stringify(existing, null, 2), 'utf-8')
+    } else {
+      configPath = path.join(projectPath || process.cwd(), '.mcp.json')
+      const data = { mcpServers: servers }
+      await fs.promises.writeFile(configPath, JSON.stringify(data, null, 2), 'utf-8')
+    }
+    return true
+  } catch {
+    return false
+  }
+})
+
+// Claude CLAUDE.md handlers
+ipcMain.handle('claude:readClaudeMd', async (_, scope: string, projectPath?: string) => {
+  try {
+    let filePath: string
+    if (scope === 'global') {
+      filePath = path.join(os.homedir(), '.claude', 'CLAUDE.md')
+    } else {
+      filePath = path.join(projectPath || process.cwd(), 'CLAUDE.md')
+    }
+    return await fs.promises.readFile(filePath, 'utf-8')
+  } catch {
+    return ''
+  }
+})
+
+ipcMain.handle('claude:writeClaudeMd', async (_, scope: string, content: string, projectPath?: string) => {
+  try {
+    let filePath: string
+    if (scope === 'global') {
+      filePath = path.join(os.homedir(), '.claude', 'CLAUDE.md')
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
+    } else {
+      filePath = path.join(projectPath || process.cwd(), 'CLAUDE.md')
+    }
+    await fs.promises.writeFile(filePath, content, 'utf-8')
+    return true
+  } catch {
+    return false
+  }
+})
+
+ipcMain.handle('claude:readStatsCache', async () => {
+  try {
+    const statsPath = path.join(os.homedir(), '.claude', 'stats-cache.json')
+    const content = await fs.promises.readFile(statsPath, 'utf-8')
+    return JSON.parse(content)
+  } catch {
+    return null
+  }
+})
+
+ipcMain.handle('claude:getUsage', async () => {
+  try {
+    // Read credentials
+    const credPath = path.join(os.homedir(), '.claude', '.credentials.json')
+    const credContent = await fs.promises.readFile(credPath, 'utf-8')
+    const cred = JSON.parse(credContent)
+    const token = cred?.claudeAiOauth?.accessToken
+    if (!token) return null
+
+    // Call OAuth usage API
+    return await new Promise((resolve) => {
+      const req = https.request({
+        hostname: 'api.anthropic.com',
+        path: '/api/oauth/usage',
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'anthropic-beta': 'oauth-2025-04-20',
+          'User-Agent': 'claude-code/2.0.31',
+        },
+      }, (res) => {
+        let body = ''
+        res.on('data', (chunk: Buffer) => { body += chunk.toString() })
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(body))
+          } catch {
+            resolve(null)
+          }
+        })
+      })
+      req.on('error', () => resolve(null))
+      req.setTimeout(10000, () => { req.destroy(); resolve(null) })
+      req.end()
+    })
+  } catch {
+    return null
+  }
+})
+
+// Claude Session JSONL handlers
+ipcMain.handle('claude:listProjects', async () => {
+  try {
+    const projectsDir = path.join(os.homedir(), '.claude', 'projects')
+    if (!fs.existsSync(projectsDir)) return []
+    const entries = await fs.promises.readdir(projectsDir, { withFileTypes: true })
+    return entries.filter(e => e.isDirectory()).map(e => e.name)
+  } catch {
+    return []
+  }
+})
+
+ipcMain.handle('claude:listSessions', async (_, projectName: string) => {
+  try {
+    const projectDir = path.join(os.homedir(), '.claude', 'projects', projectName)
+    if (!fs.existsSync(projectDir)) return []
+    const entries = await fs.promises.readdir(projectDir)
+    const sessions: Array<{
+      id: string
+      size: number
+      mtime: string
+      firstMessage: string
+    }> = []
+    for (const entry of entries) {
+      if (entry.endsWith('.jsonl')) {
+        const sessionId = entry.replace('.jsonl', '')
+        const filePath = path.join(projectDir, entry)
+        const stat = await fs.promises.stat(filePath)
+        // Read first user message for preview
+        let firstMessage = ''
+        try {
+          const content = await fs.promises.readFile(filePath, 'utf-8')
+          const lines = content.split('\n').filter(l => l.trim())
+          for (const line of lines) {
+            const parsed = JSON.parse(line)
+            if (parsed.type === 'user' && parsed.message?.content) {
+              const content = parsed.message.content
+              firstMessage = typeof content === 'string'
+                ? content.slice(0, 100)
+                : JSON.stringify(content).slice(0, 100)
+              break
+            }
+          }
+        } catch { /* ignore parse errors */ }
+        sessions.push({
+          id: sessionId,
+          size: stat.size,
+          mtime: stat.mtime.toISOString(),
+          firstMessage,
+        })
+      }
+    }
+    // Sort by mtime descending (newest first)
+    sessions.sort((a, b) => new Date(b.mtime).getTime() - new Date(a.mtime).getTime())
+    return sessions
+  } catch {
+    return []
+  }
+})
+
+ipcMain.handle('claude:readSession', async (_, projectName: string, sessionId: string) => {
+  try {
+    const filePath = path.join(os.homedir(), '.claude', 'projects', projectName, `${sessionId}.jsonl`)
+    const content = await fs.promises.readFile(filePath, 'utf-8')
+    const lines = content.split('\n').filter(l => l.trim())
+    const messages: Array<{
+      type: string
+      role?: string
+      content?: unknown
+      model?: string
+      timestamp?: string
+      usage?: {
+        input_tokens?: number
+        output_tokens?: number
+        cache_read_input_tokens?: number
+        cache_creation_input_tokens?: number
+      }
+    }> = []
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line)
+        if (parsed.type === 'user' || parsed.type === 'assistant') {
+          messages.push({
+            type: parsed.type,
+            role: parsed.message?.role,
+            content: parsed.message?.content,
+            model: parsed.message?.model,
+            timestamp: parsed.timestamp,
+            usage: parsed.message?.usage,
+          })
+        }
+      } catch { /* skip invalid lines */ }
+    }
+    return messages
+  } catch {
+    return []
+  }
+})
+
+// Claude Plans handlers
+ipcMain.handle('claude:listPlans', async () => {
+  try {
+    const plansDir = path.join(os.homedir(), '.claude', 'plans')
+    if (!fs.existsSync(plansDir)) return []
+    const entries = await fs.promises.readdir(plansDir)
+    const plans: Array<{
+      name: string
+      title: string
+      size: number
+      mtime: string
+    }> = []
+    for (const entry of entries) {
+      if (entry.endsWith('.md')) {
+        const filePath = path.join(plansDir, entry)
+        const stat = await fs.promises.stat(filePath)
+        // Read first line for title
+        let title = entry.replace('.md', '')
+        try {
+          const content = await fs.promises.readFile(filePath, 'utf-8')
+          const firstLine = content.split('\n').find(l => l.trim())
+          if (firstLine) {
+            title = firstLine.replace(/^#+\s*/, '').trim()
+          }
+        } catch { /* ignore */ }
+        plans.push({
+          name: entry.replace('.md', ''),
+          title,
+          size: stat.size,
+          mtime: stat.mtime.toISOString(),
+        })
+      }
+    }
+    plans.sort((a, b) => new Date(b.mtime).getTime() - new Date(a.mtime).getTime())
+    return plans
+  } catch {
+    return []
+  }
+})
+
+ipcMain.handle('claude:readPlan', async (_, planName: string) => {
+  try {
+    const filePath = path.join(os.homedir(), '.claude', 'plans', `${planName}.md`)
+    return await fs.promises.readFile(filePath, 'utf-8')
+  } catch {
+    return null
+  }
+})
+
+// Claude Todos handlers
+ipcMain.handle('claude:listTodos', async () => {
+  try {
+    const todosDir = path.join(os.homedir(), '.claude', 'todos')
+    if (!fs.existsSync(todosDir)) return []
+    const entries = await fs.promises.readdir(todosDir)
+    const todos: Array<{
+      id: string
+      tasks: Array<{
+        id: string
+        subject: string
+        status: string
+        description?: string
+      }>
+      mtime: string
+    }> = []
+    for (const entry of entries) {
+      if (entry.endsWith('.json')) {
+        const filePath = path.join(todosDir, entry)
+        const stat = await fs.promises.stat(filePath)
+        try {
+          const content = await fs.promises.readFile(filePath, 'utf-8')
+          const tasks = JSON.parse(content)
+          // Only include if has tasks
+          if (Array.isArray(tasks) && tasks.length > 0) {
+            todos.push({
+              id: entry.replace('.json', ''),
+              tasks: tasks.map((t: { id?: string; subject?: string; status?: string; description?: string }) => ({
+                id: t.id || '',
+                subject: t.subject || '',
+                status: t.status || 'pending',
+                description: t.description,
+              })),
+              mtime: stat.mtime.toISOString(),
+            })
+          }
+        } catch { /* skip invalid */ }
+      }
+    }
+    todos.sort((a, b) => new Date(b.mtime).getTime() - new Date(a.mtime).getTime())
+    return todos
+  } catch {
+    return []
+  }
+})
+
+// Claude Marketplace handler
+function fetchJson(url: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const parsedUrl = new URL(url)
+    const req = https.request({
+      hostname: parsedUrl.hostname,
+      path: parsedUrl.pathname + parsedUrl.search,
+      method: 'GET',
+      headers: { 'User-Agent': 'myo-node/1.0' },
+    }, (res) => {
+      let body = ''
+      res.on('data', (chunk: Buffer) => { body += chunk.toString() })
+      res.on('end', () => {
+        try { resolve(JSON.parse(body)) }
+        catch { reject(new Error('Invalid JSON')) }
+      })
+    })
+    req.on('error', reject)
+    req.setTimeout(15000, () => { req.destroy(); reject(new Error('Timeout')) })
+    req.end()
+  })
+}
+
+ipcMain.handle('claude:fetchMarketplace', async () => {
+  const sources = [
+    { url: 'https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/.claude-plugin/marketplace.json', marketplace: 'claude-plugins-official' },
+    { url: 'https://raw.githubusercontent.com/anthropics/claude-code/main/.claude-plugin/marketplace.json', marketplace: 'claude-code' },
+    { url: 'https://raw.githubusercontent.com/DustyWalker/claude-code-marketplace/main/.claude-plugin/marketplace.json', marketplace: 'claude-code-marketplace' },
+  ]
+
+  type PluginEntry = Record<string, unknown> & { name: string; marketplace: string }
+
+  const results = await Promise.allSettled(
+    sources.map(async (src) => {
+      const data = await fetchJson(src.url) as { plugins?: Array<Record<string, unknown>> }
+      return (data.plugins || []).map(p => ({ ...p, marketplace: src.marketplace } as PluginEntry))
+    })
+  )
+
+  const plugins: PluginEntry[] = []
+  const seen = new Set<string>()
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      for (const p of result.value) {
+        if (!seen.has(p.name)) {
+          seen.add(p.name)
+          plugins.push(p)
+        }
+      }
+    }
+  }
+  return plugins
+})
+
+// Claude Installed Plugins handler
+ipcMain.handle('claude:getInstalledPlugins', async () => {
+  const installed: string[] = []
+  try {
+    // 1. Check ~/.claude/skills/ directory
+    const skillsDir = path.join(os.homedir(), '.claude', 'skills')
+    if (fs.existsSync(skillsDir)) {
+      const entries = await fs.promises.readdir(skillsDir, { withFileTypes: true })
+      for (const e of entries) {
+        if (e.isDirectory()) installed.push(e.name)
+      }
+    }
+
+    // 2. Check ~/.claude/manifest.json skills/commands
+    try {
+      const manifestPath = path.join(os.homedir(), '.claude', 'manifest.json')
+      const content = await fs.promises.readFile(manifestPath, 'utf-8')
+      const manifest = JSON.parse(content)
+      if (manifest.skills) {
+        for (const name of Object.keys(manifest.skills)) {
+          if (!installed.includes(name)) installed.push(name)
+        }
+      }
+      if (manifest.commands) {
+        for (const name of Object.keys(manifest.commands)) {
+          if (!installed.includes(name)) installed.push(name)
+        }
+      }
+    } catch { /* no manifest */ }
+
+    // 3. Check ~/.claude/settings.json for mcpServers (matching MCP/LSP plugins)
+    try {
+      const settingsPath = path.join(os.homedir(), '.claude', 'settings.json')
+      const content = await fs.promises.readFile(settingsPath, 'utf-8')
+      const settings = JSON.parse(content)
+      if (settings.mcpServers) {
+        for (const name of Object.keys(settings.mcpServers)) {
+          if (!installed.includes(name)) installed.push(name)
+        }
+      }
+      // Check for plugins key if it exists
+      if (settings.plugins && Array.isArray(settings.plugins)) {
+        for (const p of settings.plugins) {
+          const pName = typeof p === 'string' ? p : p?.name
+          if (pName && !installed.includes(pName)) installed.push(pName)
+        }
+      }
+    } catch { /* no settings */ }
+  } catch { /* ignore */ }
+  return installed
+})
+
+// Claude Keybindings handler
+ipcMain.handle('claude:readKeybindings', async () => {
+  try {
+    const filePath = path.join(os.homedir(), '.claude', 'keybindings.json')
+    const content = await fs.promises.readFile(filePath, 'utf-8')
+    return JSON.parse(content)
+  } catch {
+    return null
   }
 })
 

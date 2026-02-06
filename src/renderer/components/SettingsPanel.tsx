@@ -1,21 +1,19 @@
-import { useState, useMemo } from 'react'
-import { useSettingsStore, RenderMode, ShellType } from '../store/settings'
+import { useMemo } from 'react'
+import { useSettingsStore, ShellType } from '../store/settings'
 import { useThemeStore } from '../store/theme'
-import ThemeEditor from './ThemeEditor'
 
 interface SettingsPanelProps {
   isOpen: boolean
   onClose: () => void
+  projectPath?: string
 }
 
-export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
+export default function SettingsPanel({ isOpen, onClose, projectPath }: SettingsPanelProps) {
   const {
-    renderMode,
     showThinking,
     autoScroll,
     compactMode,
     shell,
-    setRenderMode,
     setShowThinking,
     setAutoScroll,
     setCompactMode,
@@ -25,38 +23,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   // Detect platform
   const isWindows = useMemo(() => navigator.platform.toLowerCase().includes('win'), [])
 
-  const { themeName, themes, customThemes, setTheme, setFontSize, currentTheme, deleteCustomTheme, duplicateTheme } = useThemeStore()
-  const [themeEditorOpen, setThemeEditorOpen] = useState(false)
-  const [editingThemeKey, setEditingThemeKey] = useState<string | null>(null)
-
-  const allThemes = { ...themes, ...customThemes }
-  const customThemeKeys = Object.keys(customThemes)
-
-  const handleCreateTheme = () => {
-    setEditingThemeKey(null)
-    setThemeEditorOpen(true)
-  }
-
-  const handleEditTheme = (key: string) => {
-    setEditingThemeKey(key)
-    setThemeEditorOpen(true)
-  }
-
-  const handleDuplicateTheme = (key: string) => {
-    const sourceTheme = allThemes[key]
-    if (sourceTheme) {
-      const newKey = duplicateTheme(key, `${sourceTheme.name} Copy`)
-      if (newKey) {
-        setTheme(newKey)
-      }
-    }
-  }
-
-  const handleDeleteTheme = (key: string) => {
-    if (confirm('Are you sure you want to delete this theme?')) {
-      deleteCustomTheme(key)
-    }
-  }
+  const { themeName, themes, setTheme, setFontSize, currentTheme } = useThemeStore()
 
   if (!isOpen) return null
 
@@ -70,165 +37,26 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       </div>
 
       <div className="settings-content">
-        {/* Render Mode */}
-        <section className="settings-section">
-          <h3>Render Mode</h3>
-          <p className="settings-description">
-            How Claude's output is displayed
-          </p>
-          <div className="render-mode-options">
-            <RenderModeOption
-              mode="terminal"
-              label="Terminal Only"
-              description="Classic terminal output"
-              icon="⬛"
-              selected={renderMode === 'terminal'}
-              onSelect={() => setRenderMode('terminal')}
-            />
-            <RenderModeOption
-              mode="hybrid"
-              label="Hybrid"
-              description="Terminal + rendered Claude output"
-              icon="◧"
-              selected={renderMode === 'hybrid'}
-              onSelect={() => setRenderMode('hybrid')}
-            />
-            <RenderModeOption
-              mode="rendered"
-              label="Rendered"
-              description="Full markdown rendering"
-              icon="◻"
-              selected={renderMode === 'rendered'}
-              onSelect={() => setRenderMode('rendered')}
-            />
-            <RenderModeOption
-              mode="abstracted"
-              label="Abstracted"
-              description="Block UI with input bar"
-              icon="▣"
-              selected={renderMode === 'abstracted'}
-              onSelect={() => setRenderMode('abstracted')}
-            />
-          </div>
-        </section>
-
         {/* Theme */}
         <section className="settings-section">
           <h3>Terminal Theme</h3>
           <div className="theme-options">
             {Object.entries(themes).map(([key, theme]) => (
-              <div key={key} className="theme-option-wrapper">
-                <button
-                  className={`theme-option ${themeName === key ? 'selected' : ''}`}
-                  onClick={() => setTheme(key)}
-                  style={{
-                    background: theme.background,
-                    color: theme.foreground,
-                    borderColor: themeName === key ? theme.cursor : 'var(--border)',
-                    boxShadow: themeName === key ? `0 0 15px ${theme.cursor}40` : 'none',
-                  }}
-                >
-                  {theme.name}
-                </button>
-                <button
-                  className="theme-action-btn duplicate"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleDuplicateTheme(key)
-                  }}
-                  title="Duplicate"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                  </svg>
-                </button>
-              </div>
+              <button
+                key={key}
+                className={`theme-option ${themeName === key ? 'selected' : ''}`}
+                onClick={() => setTheme(key)}
+                style={{
+                  background: theme.background,
+                  color: theme.foreground,
+                  borderColor: themeName === key ? theme.cursor : 'var(--border)',
+                  boxShadow: themeName === key ? `0 0 15px ${theme.cursor}40` : 'none',
+                }}
+              >
+                {theme.name}
+              </button>
             ))}
           </div>
-        </section>
-
-        {/* Custom Themes */}
-        <section className="settings-section">
-          <div className="section-header-row">
-            <h3>Custom Themes</h3>
-            <button className="create-theme-btn" onClick={handleCreateTheme}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="12" y1="5" x2="12" y2="19"/>
-                <line x1="5" y1="12" x2="19" y2="12"/>
-              </svg>
-              New
-            </button>
-          </div>
-          {customThemeKeys.length > 0 ? (
-            <div className="theme-options">
-              {customThemeKeys.map((key) => {
-                const theme = customThemes[key]
-                return (
-                  <div key={key} className="theme-option-wrapper custom">
-                    <button
-                      className={`theme-option ${themeName === key ? 'selected' : ''}`}
-                      onClick={() => setTheme(key)}
-                      style={{
-                        background: theme.background,
-                        color: theme.foreground,
-                        borderColor: themeName === key ? theme.cursor : 'var(--border)',
-                        boxShadow: themeName === key ? `0 0 15px ${theme.cursor}40` : 'none',
-                      }}
-                    >
-                      {theme.name}
-                    </button>
-                    <div className="theme-actions">
-                      <button
-                        className="theme-action-btn edit"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleEditTheme(key)
-                        }}
-                        title="Edit"
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                        </svg>
-                      </button>
-                      <button
-                        className="theme-action-btn duplicate"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDuplicateTheme(key)
-                        }}
-                        title="Duplicate"
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                        </svg>
-                      </button>
-                      <button
-                        className="theme-action-btn delete"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDeleteTheme(key)
-                        }}
-                        title="Delete"
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <polyline points="3,6 5,6 21,6"/>
-                          <path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2v2"/>
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="no-custom-themes">
-              <p>No custom themes yet</p>
-              <p className="hint">Click "New" to create your own theme</p>
-            </div>
-          )}
         </section>
 
         {/* Font Size */}
@@ -336,41 +164,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         </section>
       </div>
 
-      {/* Theme Editor Modal */}
-      <ThemeEditor
-        isOpen={themeEditorOpen}
-        onClose={() => setThemeEditorOpen(false)}
-        editingThemeKey={editingThemeKey}
-      />
     </div>
-  )
-}
-
-interface RenderModeOptionProps {
-  mode: RenderMode
-  label: string
-  description: string
-  icon: string
-  selected: boolean
-  onSelect: () => void
-}
-
-function RenderModeOption({
-  label,
-  description,
-  icon,
-  selected,
-  onSelect,
-}: RenderModeOptionProps) {
-  return (
-    <button
-      className={`render-mode-option ${selected ? 'selected' : ''}`}
-      onClick={onSelect}
-    >
-      <span className="render-mode-icon">{icon}</span>
-      <span className="render-mode-label">{label}</span>
-      <span className="render-mode-desc">{description}</span>
-    </button>
   )
 }
 
