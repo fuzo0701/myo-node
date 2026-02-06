@@ -48,6 +48,7 @@
 #### 1.3 입력 처리
 - [x] 명령어 팔레트 (Ctrl+Shift+P)
 - [x] 히스토리 탐색 (터미널 내장 ↑↓)
+- [x] 스킬 명령어 자동완성 (13개 스킬: /commit, /review-pr, /3ds, /socrates, /tasks-generator 등)
 
 ### 8. 히스토리 (기본)
 - [x] Claude Code 출력 자동 감지
@@ -428,6 +429,9 @@
 - [x] 상태바 우측 앱 버전 표시 (package.json → Vite define → StatusBar)
 - [x] 프로덕션 빌드에서 Ctrl+R / Ctrl+Shift+R 새로고침 차단
 - [x] TerminalInput blur() 메서드 추가 (출력 영역 클릭 시 TypeError 수정)
+- [x] 탭 전환 시 Abstracted 모드 출력 블록 유실 수정 (모듈 레벨 Map 캐시로 remount 시 복원)
+- [x] 대시보드 풀스크린 레이아웃 수정 (wrapper div에 flex 속성 추가)
+- [x] OutputArea 자동 스크롤 타이밍 수정 (requestAnimationFrame으로 DOM 레이아웃 후 스크롤)
 
 ### 기타
 - [ ] 플러그인 시스템
@@ -591,7 +595,7 @@
   - `/stats` — 사용 통계
   - `/theme` — 테마 변경
   - `/install-github-app` — GitHub 앱 설치
-- **복잡도**: Low — **구현 완료**: commands.ts (23개 슬래시 명령 + 아이콘/설명), CommandPalette.tsx (카테고리별 그룹, Tab 토글)
+- **복잡도**: Low — **구현 완료**: commands.ts (23개 슬래시 명령 + 13개 스킬 명령 + 아이콘/설명), CommandPalette.tsx (카테고리별 그룹, Tab 토글)
 
 #### 18.2 빠른 실행 UI
 - [ ] 자주 사용하는 명령 즐겨찾기/핀
@@ -814,7 +818,7 @@ location.reload()
 ### 릴리스 히스토리
 | 버전 | 날짜 | 주요 변경 |
 |------|------|-----------|
-| v0.5.3 | 2026-02-06 | Ctrl+F 검색, 숨김파일 토글, 파일생성 다이얼로그, 상태바 버전 표시, 프로덕션 Ctrl+R 차단, TerminalInput blur 수정, Claude 관리 Phase 1 완료 |
+| v0.5.3 | 2026-02-06 | Ctrl+F 검색, 숨김파일 토글, 파일생성 다이얼로그, 상태바 버전 표시, 프로덕션 Ctrl+R 차단, TerminalInput blur 수정, 탭 전환 출력 블록 캐시, 대시보드 풀스크린 수정, 자동 스크롤 수정, 스킬 자동완성 13종, Claude 관리 Phase 1 완료 |
 | v0.5.2 | 2026-02-04 | 크로스 드라이브 폴더 탐색 수정 |
 | v0.5.1 | 2026-02-04 | Abstracted 모드, 명령어 자동완성, 멀티라인 입력 |
 
