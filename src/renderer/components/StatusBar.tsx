@@ -165,6 +165,9 @@ export default function StatusBar() {
           </span>
         </span>
       </div>
+      <div className="status-bar-right">
+        <span className="status-item status-version">v{__APP_VERSION__}</span>
+      </div>
     </div>
   )
 }

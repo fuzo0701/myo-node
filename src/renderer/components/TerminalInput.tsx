@@ -12,6 +12,7 @@ import { paletteCommands, slashCommands, CommandSuggestion } from '../data/comma
 
 export interface TerminalInputHandle {
   focus: () => void
+  blur: () => void
   clear: () => void
 }
 
@@ -52,6 +53,7 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
 
     useImperativeHandle(ref, () => ({
       focus: () => textareaRef.current?.focus(),
+      blur: () => textareaRef.current?.blur(),
       clear: () => setValue(''),
     }))
 
