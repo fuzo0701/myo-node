@@ -52,6 +52,12 @@ function nextBlockId(): string {
   return `blk-${Date.now()}-${++outputBlockIdCounter}`
 }
 
+// Module-level cache: persists outputBlocks across component remounts
+// This ensures tab content survives if React unmounts/remounts a HybridTerminal
+const outputBlocksCache = new Map<string, OutputBlock[]>()
+// Also cache the current output accumulation buffer per tab
+const currentOutputCache = new Map<string, string>()
+
 export default function HybridTerminal({ tabId, isActive = true }: HybridTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalContainerRef = useRef<HTMLDivElement>(null)
@@ -113,8 +119,11 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
   }, [setClaudeStatus, tabId])
 
   // === Abstracted mode state ===
-  const [outputBlocks, setOutputBlocks] = useState<OutputBlock[]>([])
-  const currentOutputRef = useRef<string>('')
+  // Initialize from module-level cache to survive component remounts
+  const [outputBlocks, setOutputBlocks] = useState<OutputBlock[]>(
+    () => (tabId ? outputBlocksCache.get(tabId) ?? [] : [])
+  )
+  const currentOutputRef = useRef<string>(tabId ? currentOutputCache.get(tabId) ?? '' : '')
   const currentBlockTypeRef = useRef<'output' | 'claude'>('output')
   const echoSuppressRef = useRef<string | null>(null)
   const terminalInputRef = useRef<TerminalInputHandle>(null)
@@ -803,6 +812,29 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     }
   }, []) // No dependencies - uses refs
 
+  // Sync outputBlocks to module-level cache so they survive remounts
+  useEffect(() => {
+    if (tabId) {
+      outputBlocksCache.set(tabId, outputBlocks)
+    }
+  }, [tabId, outputBlocks])
+
+  // Sync currentOutput buffer to cache
+  // Use an interval since the ref changes without triggering re-renders
+  useEffect(() => {
+    if (!tabId) return
+    const interval = setInterval(() => {
+      currentOutputCache.set(tabId, currentOutputRef.current)
+    }, 500)
+    return () => {
+      clearInterval(interval)
+      // Save final state on unmount
+      if (tabId) {
+        currentOutputCache.set(tabId, currentOutputRef.current)
+      }
+    }
+  }, [tabId])
+
   // Cleanup RAF and timers on unmount
   useEffect(() => {
     return () => {
@@ -993,6 +1025,7 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     }, 0)
 
     return () => {
+      console.log(`[HybridTerminal] Cleanup for tab: ${tabId}`)
       clearTimeout(timerId)
       resizeObserverRef.current?.disconnect()
       terminal.dispose()

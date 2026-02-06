@@ -304,7 +304,7 @@ export default function App() {
         claudeSettingsOpen={claudeSettingsOpen}
         isDashboardActive={showDashboard}
       />
-      <div style={showDashboard ? undefined : { display: 'none' }}>
+      <div style={showDashboard ? { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' } : { display: 'none' }}>
         <FullScreenWelcome
           onFolderSelect={handleFolderSelectNewTab}
           onGitClone={handleGitCloneNewTab}

@@ -4,7 +4,7 @@ export interface CommandSuggestion {
   command: string
   source: 'palette' | 'slash' | 'history'
   description?: string
-  category?: 'claude' | 'session' | 'info' | 'config' | 'tools' | 'shell' | 'git' | 'npm'
+  category?: 'claude' | 'session' | 'info' | 'config' | 'tools' | 'skill' | 'shell' | 'git' | 'npm'
   icon?: string // emoji icon
 }
 
@@ -61,6 +61,21 @@ export const slashCommands: CommandSuggestion[] = [
   // Auth commands
   { id: 's-login', label: '/login', command: '/login', source: 'slash', category: 'config', description: 'Log in to Claude', icon: '🔑' },
   { id: 's-logout', label: '/logout', command: '/logout', source: 'slash', category: 'config', description: 'Log out', icon: '🚪' },
+
+  // Skill commands (Claude Code skills)
+  { id: 's-commit', label: '/commit', command: '/commit', source: 'slash', category: 'skill', description: 'Commit changes with AI message', icon: '✅' },
+  { id: 's-review-pr', label: '/review-pr', command: '/review-pr', source: 'slash', category: 'skill', description: 'Review a pull request', icon: '🔍' },
+  { id: 's-3ds', label: '/3ds', command: '/3ds', source: 'slash', category: 'skill', description: 'Interactive project init & design tokens', icon: '🎯' },
+  { id: 's-socrates', label: '/socrates', command: '/socrates', source: 'slash', category: 'skill', description: 'Socratic 1:1 planning consultation', icon: '🏛️' },
+  { id: 's-tasks-generator', label: '/tasks-generator', command: '/tasks-generator', source: 'slash', category: 'skill', description: 'Generate or update TASKS.md', icon: '📋' },
+  { id: 's-task-done', label: '/task-done', command: '/task-done', source: 'slash', category: 'skill', description: 'Mark task as completed', icon: '☑️' },
+  { id: 's-deep-research', label: '/deep-research', command: '/deep-research', source: 'slash', category: 'skill', description: 'Deep research with parallel search', icon: '🔬' },
+  { id: 's-orchestrate', label: '/orchestrate', command: '/orchestrate', source: 'slash', category: 'skill', description: 'Orchestrate expert agents', icon: '🎼' },
+  { id: 's-chrome-browser', label: '/chrome-browser', command: '/chrome-browser', source: 'slash', category: 'skill', description: 'Chrome browser automation', icon: '🌐' },
+  { id: 's-design-linker', label: '/design-linker', command: '/design-linker', source: 'slash', category: 'skill', description: 'Link design mockups to tasks', icon: '🔗' },
+  { id: 's-design-mockup', label: '/design-mockup-analyzer', command: '/design-mockup-analyzer', source: 'slash', category: 'skill', description: 'Analyze design mockups & extract styles', icon: '🎨' },
+  { id: 's-project-bootstrap', label: '/project-bootstrap', command: '/project-bootstrap', source: 'slash', category: 'skill', description: 'Generate agent team structure', icon: '🏗️' },
+  { id: 's-keybindings', label: '/keybindings-help', command: '/keybindings-help', source: 'slash', category: 'skill', description: 'Customize keyboard shortcuts', icon: '⌨️' },
 ]
 
 // Category labels and order
@@ -70,9 +85,10 @@ export const categoryLabels: Record<string, string> = {
   session: 'Session',
   config: 'Config',
   tools: 'Tools',
+  skill: 'Skills',
   shell: 'Shell',
   git: 'Git',
   npm: 'NPM',
 }
 
-export const categoryOrder = ['claude', 'info', 'session', 'config', 'tools', 'shell', 'git', 'npm']
+export const categoryOrder = ['claude', 'info', 'session', 'config', 'tools', 'skill', 'shell', 'git', 'npm']

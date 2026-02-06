@@ -22,9 +22,13 @@ const OutputArea = memo(function OutputArea({ blocks }: OutputAreaProps) {
   const userScrolledUp = useRef(false)
 
   // Auto-scroll on new content
+  // Use rAF to ensure DOM has laid out new content before scrolling
   useEffect(() => {
     if (autoScroll && !userScrolledUp.current && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      const el = scrollRef.current
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight
+      })
     }
   }, [blocks, autoScroll])
 
