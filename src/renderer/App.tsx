@@ -304,88 +304,87 @@ export default function App() {
         claudeSettingsOpen={claudeSettingsOpen}
         isDashboardActive={showDashboard}
       />
-      {showDashboard ? (
+      <div style={showDashboard ? undefined : { display: 'none' }}>
         <FullScreenWelcome
           onFolderSelect={handleFolderSelectNewTab}
           onGitClone={handleGitCloneNewTab}
         />
-      ) : (
-        <div className="main-content">
-          <ResizablePanel side="left" defaultWidth={260} minWidth={180} maxWidth={500} isOpen={explorerOpen}>
-            <FileExplorer
-              isOpen={true}
-              onClose={() => setExplorerOpen(false)}
-              onFileSelect={(path) => {
-                if (activeTabId) {
-                  updateEditingFilePath(activeTabId, path)
-                }
-              }}
-              onOpenFolder={handleOpenFolder}
-              onOpenInNewTab={(path) => { addTab(path, path); focusTerminal() }}
-              onGitClone={handleGitClone}
-              currentCwd={activeTabCwd}
-              explorerPath={activeExplorerPath}
-              onExplorerPathChange={(path) => {
-                if (activeTabId) {
-                  updateExplorerPath(activeTabId, path)
-                }
-              }}
-            />
-          </ResizablePanel>
-          <ResizablePanel side="left" defaultWidth={280} minWidth={220} maxWidth={450} isOpen={claudeSettingsOpen}>
-            <ClaudeSettingsPanel
-              isOpen={claudeSettingsOpen}
-              onClose={() => setClaudeSettingsOpen(false)}
-              projectPath={activeTabCwd}
-              onSendCommand={sendCommandToTerminal}
-            />
-          </ResizablePanel>
-          <HistoryPanel
-            isOpen={historyOpen}
-            onClose={() => setHistoryOpen(false)}
-            onSelectConversation={() => setConversationViewOpen(true)}
+      </div>
+      <div className="main-content" style={showDashboard ? { display: 'none' } : undefined}>
+        <ResizablePanel side="left" defaultWidth={260} minWidth={180} maxWidth={500} isOpen={explorerOpen}>
+          <FileExplorer
+            isOpen={true}
+            onClose={() => setExplorerOpen(false)}
+            onFileSelect={(path) => {
+              if (activeTabId) {
+                updateEditingFilePath(activeTabId, path)
+              }
+            }}
+            onOpenFolder={handleOpenFolder}
+            onOpenInNewTab={(path) => { addTab(path, path); focusTerminal() }}
+            onGitClone={handleGitClone}
+            currentCwd={activeTabCwd}
+            explorerPath={activeExplorerPath}
+            onExplorerPathChange={(path) => {
+              if (activeTabId) {
+                updateExplorerPath(activeTabId, path)
+              }
+            }}
           />
-          <main className="terminal-container">
-            {splitMode === 'none' ? (
-              // Render all terminals, but only show the active one
-              // Skip dashboard tab (no terminal needed)
-              tabs.filter(tab => !tab.isDashboard).map(tab => (
-                <HybridTerminal
-                  key={tab.id}
-                  tabId={tab.id}
-                  isActive={tab.id === activeTabId}
-                />
-              ))
-            ) : (
-              <SplitPane direction={splitMode}>
-                <HybridTerminal tabId={tabs.find(t => !t.isDashboard)?.id ?? tabs[0]?.id} isActive={true} />
-                <HybridTerminal tabId={tabs.filter(t => !t.isDashboard)[1]?.id ?? tabs.find(t => !t.isDashboard)?.id ?? tabs[0]?.id} isActive={true} />
-              </SplitPane>
-            )}
-          </main>
-          <ConversationView
-            isOpen={conversationViewOpen}
-            onClose={() => setConversationViewOpen(false)}
-            messages={activeConversation?.messages ?? []}
-          />
-          <ResizablePanel side="right" defaultWidthPercent={40} minWidth={250} maxWidth={800} isOpen={editorOpen}>
-            <FileEditor
-              isOpen={true}
-              filePath={activeEditingFilePath}
-              onClose={() => {
-                if (activeTabId) {
-                  updateEditingFilePath(activeTabId, null)
-                }
-              }}
-            />
-          </ResizablePanel>
-          <SettingsPanel
-            isOpen={settingsOpen}
-            onClose={() => setSettingsOpen(false)}
+        </ResizablePanel>
+        <ResizablePanel side="left" defaultWidth={280} minWidth={220} maxWidth={450} isOpen={claudeSettingsOpen}>
+          <ClaudeSettingsPanel
+            isOpen={claudeSettingsOpen}
+            onClose={() => setClaudeSettingsOpen(false)}
             projectPath={activeTabCwd}
+            onSendCommand={sendCommandToTerminal}
           />
-        </div>
-      )}
+        </ResizablePanel>
+        <HistoryPanel
+          isOpen={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          onSelectConversation={() => setConversationViewOpen(true)}
+        />
+        <main className="terminal-container">
+          {splitMode === 'none' ? (
+            // Render all terminals, but only show the active one
+            // Skip dashboard tab (no terminal needed)
+            tabs.filter(tab => !tab.isDashboard).map(tab => (
+              <HybridTerminal
+                key={tab.id}
+                tabId={tab.id}
+                isActive={tab.id === activeTabId}
+              />
+            ))
+          ) : (
+            <SplitPane direction={splitMode}>
+              <HybridTerminal tabId={tabs.find(t => !t.isDashboard)?.id ?? tabs[0]?.id} isActive={true} />
+              <HybridTerminal tabId={tabs.filter(t => !t.isDashboard)[1]?.id ?? tabs.find(t => !t.isDashboard)?.id ?? tabs[0]?.id} isActive={true} />
+            </SplitPane>
+          )}
+        </main>
+        <ConversationView
+          isOpen={conversationViewOpen}
+          onClose={() => setConversationViewOpen(false)}
+          messages={activeConversation?.messages ?? []}
+        />
+        <ResizablePanel side="right" defaultWidthPercent={40} minWidth={250} maxWidth={800} isOpen={editorOpen}>
+          <FileEditor
+            isOpen={true}
+            filePath={activeEditingFilePath}
+            onClose={() => {
+              if (activeTabId) {
+                updateEditingFilePath(activeTabId, null)
+              }
+            }}
+          />
+        </ResizablePanel>
+        <SettingsPanel
+          isOpen={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          projectPath={activeTabCwd}
+        />
+      </div>
       <StatusBar />
       <CommandPalette
         isOpen={commandPaletteOpen}
