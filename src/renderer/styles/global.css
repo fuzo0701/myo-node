@@ -103,6 +103,36 @@ body::before {
   background: var(--gradient-dark-radial);
 }
 
+/* ===== Content Stack (Dashboard / Main content switching) ===== */
+.content-stack {
+  flex: 1;
+  display: grid;
+  grid-template: "layer" 1fr / 1fr;
+  overflow: hidden;
+}
+
+.content-stack > .content-panel {
+  grid-area: layer;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+  /* Dashboard panel needs flex column for FullScreenWelcome */
+  display: flex;
+  flex-direction: column;
+}
+
+.content-stack > .content-panel.active {
+  opacity: 1;
+  pointer-events: auto;
+  z-index: 1;
+}
+
+/* Override: main-content panel uses row flex */
+.content-stack > .content-panel.main-content {
+  flex-direction: row;
+}
+
 /* ===== Title Bar ===== */
 .title-bar {
   display: flex;
@@ -480,8 +510,6 @@ body::before {
 
 /* ===== Main Content Layout ===== */
 .main-content {
-  display: flex;
-  flex: 1;
   overflow: hidden;
 }
 

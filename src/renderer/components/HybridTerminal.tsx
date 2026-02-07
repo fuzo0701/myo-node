@@ -145,12 +145,12 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
 
   // === Abstracted mode: xterm reveal for Claude TUI ===
   const xtermRevealedRef = useRef(false)
+  const [xtermRevealed, setXtermRevealed] = useState(false)
 
   const revealXterm = useCallback(() => {
     if (xtermRevealedRef.current) return
     xtermRevealedRef.current = true
-    // Toggle via DOM classList — no React re-render, no focus theft
-    containerRef.current?.classList.add('xterm-tui-active')
+    setXtermRevealed(true)
     // Refit xterm to fill the now-visible container
     setTimeout(() => {
       fitAddonRef.current?.fit()
@@ -169,7 +169,7 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
   const hideXterm = useCallback(() => {
     if (!xtermRevealedRef.current) return
     xtermRevealedRef.current = false
-    containerRef.current?.classList.remove('xterm-tui-active')
+    setXtermRevealed(false)
     // Restore focus to TerminalInput
     setTimeout(() => {
       terminalInputRef.current?.focus()
@@ -729,14 +729,13 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
         setClaudeStatusRef.current(tabIdRef.current, 'running')
         setIsClaudeActive(true)
       }
-      // Abstracted mode: reveal xterm immediately for Claude TUI
-      if (renderModeRef.current === 'abstracted') {
-        revealXterm()
-      }
+      // Don't reveal xterm yet — wait for actual Claude TUI data to arrive.
+      // The data handler's safety net (line ~606) will call revealXterm()
+      // when Claude output is detected, preventing a blank screen flash.
     } else if (conversationIdRef.current) {
       addMessageRef.current(conversationIdRef.current, 'user', command)
     }
-  }, [finalizeOutputBlock, setIsClaudeActive, revealXterm])
+  }, [finalizeOutputBlock, setIsClaudeActive])
 
   // === Abstracted mode: signal handler ===
   const handleSignal = useCallback((signal: string) => {
@@ -1025,7 +1024,7 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     }, 0)
 
     return () => {
-      console.log(`[HybridTerminal] Cleanup for tab: ${tabId}`)
+      // Cleanup terminal and PTY
       clearTimeout(timerId)
       resizeObserverRef.current?.disconnect()
       terminal.dispose()
@@ -1090,23 +1089,34 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     }
   }, [theme])
 
-  // Focus input bar when tab becomes active and refit terminal
+  // When tab becomes active, restore outputBlocks from cache if they were lost
+  // This is a defensive measure against any state reset during tab switching
   useEffect(() => {
-    if (tabId && isActive) {
-      // Use short delay for normal tab switch, longer for initial mount (e.g., from dashboard)
-      const timer = setTimeout(() => {
-        if (renderMode === 'abstracted') {
-          // Always focus TerminalInput in abstracted mode (Korean-safe)
-          terminalInputRef.current?.focus()
-          if (xtermRevealedRef.current) {
-            fitAddonRef.current?.fit()
-          }
-        } else {
-          fitAddonRef.current?.fit()
-          terminalRef.current?.focus()
-        }
-      }, 100)
-      return () => clearTimeout(timer)
+    if (tabId && isActive && renderMode === 'abstracted') {
+      const cached = outputBlocksCache.get(tabId)
+      if (cached && cached.length > 0 && outputBlocks.length === 0) {
+        // Restore from cache
+        setOutputBlocks(cached)
+      }
+    }
+  }, [tabId, isActive, renderMode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Focus input and refit terminal when tab becomes active
+  useEffect(() => {
+    if (!tabId || !isActive) return
+    const term = terminalRef.current
+    if (renderMode === 'abstracted') {
+      terminalInputRef.current?.focus()
+      if (xtermRevealedRef.current && term) {
+        fitAddonRef.current?.fit()
+        term.refresh(0, term.rows - 1)
+      }
+    } else {
+      fitAddonRef.current?.fit()
+      term?.focus()
+      if (term) {
+        term.refresh(0, term.rows - 1)
+      }
     }
   }, [tabId, isActive, renderMode])
 
@@ -1238,7 +1248,7 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     return (
       <div
         ref={containerRef}
-        className={`hybrid-terminal ${isActive ? '' : 'hidden'}`}
+        className={`hybrid-terminal ${isActive ? '' : 'hidden'} ${xtermRevealed ? 'xterm-tui-active' : ''}`}
         onClick={() => {
           // Don't steal focus if user is selecting text (for copy)
           const sel = window.getSelection()

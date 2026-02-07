@@ -304,13 +304,14 @@ export default function App() {
         claudeSettingsOpen={claudeSettingsOpen}
         isDashboardActive={showDashboard}
       />
-      <div style={showDashboard ? { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' } : { display: 'none' }}>
-        <FullScreenWelcome
-          onFolderSelect={handleFolderSelectNewTab}
-          onGitClone={handleGitCloneNewTab}
-        />
-      </div>
-      <div className="main-content" style={showDashboard ? { display: 'none' } : undefined}>
+      <div className="content-stack">
+        <div className={`content-panel ${showDashboard ? 'active' : ''}`}>
+          <FullScreenWelcome
+            onFolderSelect={handleFolderSelectNewTab}
+            onGitClone={handleGitCloneNewTab}
+          />
+        </div>
+        <div className={`content-panel main-content ${showDashboard ? '' : 'active'}`}>
         <ResizablePanel side="left" defaultWidth={260} minWidth={180} maxWidth={500} isOpen={explorerOpen}>
           <FileExplorer
             isOpen={true}
@@ -385,6 +386,7 @@ export default function App() {
           projectPath={activeTabCwd}
         />
       </div>
+      </div>{/* end content-stack */}
       <StatusBar />
       <CommandPalette
         isOpen={commandPaletteOpen}
