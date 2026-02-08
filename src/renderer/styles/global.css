@@ -383,6 +383,32 @@ body::before {
   }
 }
 
+.tab-team-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  margin-left: 6px;
+  font-size: 9px;
+  font-weight: 600;
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  border-radius: 3px;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.tab.active .tab-team-badge {
+  background: rgba(59, 130, 246, 0.25);
+  box-shadow: 0 0 4px rgba(59, 130, 246, 0.3);
+}
+
+.tab-team-badge svg {
+  width: 10px;
+  height: 10px;
+  opacity: 0.8;
+}
+
 .tab-close {
   width: 18px;
   height: 18px;
@@ -541,6 +567,22 @@ body::before {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.status-auth {
+  cursor: default;
+}
+
+.status-auth-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-auth-label {
+  color: var(--text-secondary);
+  font-size: 10.5px;
 }
 
 .status-version {
@@ -734,11 +776,237 @@ body::before {
   color: var(--text-muted);
 }
 
+/* ===== Notification Center ===== */
+.status-notification {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.noti-bell {
+  cursor: pointer;
+  position: relative;
+  color: var(--text-muted);
+  transition: color 0.15s;
+}
+
+.noti-bell:hover {
+  color: var(--text-primary);
+}
+
+.notification-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.notification-dropdown {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: -8px;
+  width: 280px;
+  max-height: 340px;
+  background: rgba(18, 22, 36, 0.98);
+  border: 1px solid rgba(0, 217, 255, 0.2);
+  border-radius: 8px;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.notification-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.noti-clear-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  transition: color 0.15s, background 0.15s;
+}
+
+.noti-clear-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.notification-list {
+  overflow-y: auto;
+  max-height: 300px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.15) transparent;
+}
+
+.notification-empty {
+  padding: 20px 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.notification-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  transition: background 0.1s;
+}
+
+.notification-item:last-child {
+  border-bottom: none;
+}
+
+.notification-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.notification-item.clickable {
+  cursor: pointer;
+}
+
+.notification-item.unread {
+  background: rgba(0, 217, 255, 0.04);
+}
+
+.noti-icon {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 18px;
+  width: 16px;
+  text-align: center;
+}
+
+.noti-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.noti-title {
+  font-size: 11.5px;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.noti-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
 /* ===== Terminal Container ===== */
 .terminal-container {
   flex: 1;
   overflow: hidden;
   position: relative;
+  display: flex;
+}
+
+/* Terminal wrapper - preserves state by always rendering */
+.terminal-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Hidden wrappers (not in current view) */
+.terminal-wrapper.hidden {
+  display: none;
+}
+
+/* Visible wrapper in normal mode (not split) */
+.terminal-wrapper.visible:not(.split-left):not(.split-right):not(.split-top):not(.split-bottom) {
+  display: block;
+  position: relative;
+}
+
+/* Split mode - horizontal (side by side) */
+.terminal-wrapper.split-left.split-horizontal {
+  display: block;
+  position: absolute;
+  width: 50%;
+  height: 100%;
+  left: 0;
+  top: 0;
+  border-right: 1px solid var(--border);
+}
+
+.terminal-wrapper.split-right.split-horizontal {
+  display: block;
+  position: absolute;
+  width: 50%;
+  height: 100%;
+  left: 50%;
+  top: 0;
+}
+
+/* Split mode - vertical (stacked) - Legacy left/right classes */
+.terminal-wrapper.split-left.split-vertical {
+  display: block;
+  position: absolute;
+  width: 100%;
+  height: 50%;
+  left: 0;
+  top: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.terminal-wrapper.split-right.split-vertical {
+  display: block;
+  position: absolute;
+  width: 100%;
+  height: 50%;
+  left: 0;
+  top: 50%;
+}
+
+/* Split mode - vertical (stacked) - New top/bottom classes */
+.terminal-wrapper.split-top.split-vertical {
+  display: block;
+  position: absolute;
+  width: 100%;
+  height: 50%;
+  left: 0;
+  top: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.terminal-wrapper.split-bottom.split-vertical {
+  display: block;
+  position: absolute;
+  width: 100%;
+  height: 50%;
+  left: 0;
+  top: 50%;
 }
 
 .terminal-pane {
@@ -1005,38 +1273,91 @@ body::before {
 .file-explorer-path {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
+  gap: 2px;
+  padding: 6px 10px;
   background: rgba(0,0,0,0.3);
   border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  flex-shrink: 0;
 }
 
-.file-explorer-path.clickable {
-  cursor: pointer;
-  transition: background 0.15s ease;
+.file-explorer-path::-webkit-scrollbar {
+  height: 0;
 }
 
-.file-explorer-path.clickable:hover {
-  background: rgba(0, 255, 255, 0.1);
-}
-
-.path-icon {
+.breadcrumb-home {
   color: var(--accent);
   display: flex;
   align-items: center;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
 }
 
-.path-icon svg {
+.breadcrumb-home:hover {
+  background: var(--bg-hover);
+}
+
+.breadcrumb-home svg {
   filter: drop-shadow(0 0 4px var(--glow-cyan));
 }
 
-.path-text {
+.breadcrumb-segment {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.breadcrumb-sep {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin: 0 1px;
+  user-select: none;
+}
+
+.breadcrumb-part {
   font-size: 12px;
-  font-weight: 500;
-  color: var(--text-primary);
+  color: var(--text-secondary);
+  padding: 2px 4px;
+  border-radius: 3px;
+  cursor: pointer;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.breadcrumb-part:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.breadcrumb-part.current {
+  color: var(--text-primary);
+  font-weight: 500;
+  cursor: default;
+}
+
+.breadcrumb-part.current:hover {
+  background: none;
+}
+
+.git-branch-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  background: rgba(0, 217, 255, 0.08);
+  border: 1px solid rgba(0, 217, 255, 0.2);
+  border-radius: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.git-branch-badge svg {
+  opacity: 0.8;
 }
 
 .file-explorer-tree {
@@ -1057,6 +1378,105 @@ body::before {
 .file-explorer-tree::-webkit-scrollbar-thumb {
   background: rgba(0,217,255,0.2);
   border-radius: 3px;
+}
+
+.explorer-sort-wrapper {
+  position: relative;
+}
+
+.explorer-sort-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 100;
+  min-width: 140px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.explorer-sort-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 12px;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.explorer-sort-item:hover {
+  background: var(--bg-hover);
+}
+
+.explorer-sort-item.active {
+  color: var(--accent);
+}
+
+.sort-check {
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.file-explorer-filter-bar {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.file-explorer-filter-input {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  padding: 3px 8px;
+  font-size: 12px;
+  outline: none;
+  font-family: inherit;
+}
+
+.file-explorer-filter-input:focus {
+  border-color: var(--accent);
+}
+
+.file-explorer-filter-input::placeholder {
+  color: var(--text-muted);
+}
+
+.file-explorer-filter-clear {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  border-radius: 3px;
+}
+
+.file-explorer-filter-clear:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.file-explorer-selection-bar {
+  padding: 4px 16px;
+  font-size: 11px;
+  color: var(--accent);
+  background: rgba(0, 217, 255, 0.06);
+  border-top: 1px solid rgba(0, 217, 255, 0.12);
+  text-align: center;
+  flex-shrink: 0;
 }
 
 .file-explorer-loading,
@@ -2522,6 +2942,15 @@ body::before {
   opacity: 0.5;
 }
 
+.file-tree-item.git-ignored {
+  opacity: 0.45;
+}
+
+.file-tree-item.git-ignored .file-tree-name {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
 /* ===== Rename Dialog ===== */
 .rename-dialog-overlay {
   position: fixed;
@@ -3040,6 +3469,14 @@ body::before {
   z-index: auto;
   flex: 1;
   min-height: 0;
+  border: 2px solid var(--primary);
+  border-radius: 4px;
+  transition: border-color 0.2s;
+}
+
+/* Hover effect for xterm when active */
+.xterm-tui-active .xterm-abstracted:hover {
+  border-color: var(--primary-light);
 }
 
 /* Hide output area when xterm TUI is shown (input bar stays for Korean input) */
@@ -3057,6 +3494,19 @@ body::before {
 
 .input-bar-wrapper {
   flex-shrink: 0;
+  cursor: text;
+}
+
+/* Visual separation when xterm is active */
+.xterm-tui-active .input-bar-wrapper {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  background: var(--background-secondary);
+  transition: background-color 0.2s;
+}
+
+.xterm-tui-active .input-bar-wrapper:hover {
+  background: var(--background);
 }
 
 /* ===== Abstracted Mode: Output Area ===== */
@@ -3163,6 +3613,721 @@ body::before {
   border-left: 3px solid var(--accent-purple);
   padding: 12px 16px;
 }
+
+/* Teammate Block */
+.output-block-teammate {
+  background: rgba(139, 92, 246, 0.06);
+  border-left: 3px solid rgba(139, 92, 246, 0.5);
+  padding: 10px 16px;
+}
+
+.teammate-block-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(139, 92, 246, 0.8);
+  margin-bottom: 6px;
+}
+
+.output-block-teammate pre {
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+/* ===== Team Panel (slide-up from StatusBar) ===== */
+.team-panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 89;
+}
+
+.team-panel {
+  position: relative;
+  width: 100%;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transition: max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.team-panel.collapsed {
+  max-height: 36px;
+}
+
+.team-panel.expanded {
+  max-height: 400px;
+}
+
+/* Summary bar (always visible) */
+.team-panel-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  height: 36px;
+  min-height: 36px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+}
+
+.team-panel-summary:hover {
+  background: rgba(0, 217, 255, 0.05);
+}
+
+.team-panel.expanded .team-panel-summary {
+  cursor: default;
+}
+
+.team-panel.expanded .team-panel-summary:hover {
+  background: transparent;
+}
+
+.team-panel-summary-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-summary-icon {
+  font-size: 13px;
+}
+
+.team-summary-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.team-summary-progress {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.team-panel-summary-tasks {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  justify-content: center;
+}
+
+.task-summary-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.task-icon {
+  font-size: 10px;
+}
+
+.task-icon.completed {
+  color: #22c55e;
+}
+
+.task-icon.in_progress {
+  color: #3b82f6;
+}
+
+.task-icon.pending {
+  color: var(--text-muted);
+}
+
+.team-panel-toggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 3px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.team-panel-toggle:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+/* Header */
+.team-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  min-height: 40px;
+}
+
+.team-panel-header-left {
+  flex-shrink: 0;
+}
+
+.team-panel-header-center {
+  flex: 1;
+  min-width: 0;
+}
+
+.team-panel-select {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+
+.team-panel-select:hover {
+  border-color: var(--border-hover);
+}
+
+.team-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.team-panel-back {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.team-panel-back:hover {
+  background: rgba(0, 217, 255, 0.1);
+}
+
+.team-panel-agent-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.team-panel-agent-model {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+
+.team-panel-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-panel-progress-bar {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  max-width: 200px;
+  overflow: hidden;
+}
+
+.team-panel-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.team-panel-progress-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.team-panel-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.team-panel-close:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Body */
+.team-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 16px;
+  max-height: 360px;
+}
+
+.team-panel-section {
+  margin-bottom: 16px;
+}
+
+.team-panel-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.team-panel-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 8px 0;
+  font-style: italic;
+}
+
+/* Agent cards grid */
+.team-panel-agents {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.team-panel-agent-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.team-panel-agent-card:hover {
+  background: rgba(0, 217, 255, 0.06);
+  border-color: rgba(0, 217, 255, 0.2);
+}
+
+.agent-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.agent-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.agent-card-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-card-model {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.agent-card-badge {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.agent-card-badge.lead {
+  color: var(--accent);
+  background: rgba(0, 217, 255, 0.1);
+}
+
+.agent-card-badge.teammate {
+  color: rgba(168, 85, 247, 0.9);
+  background: rgba(168, 85, 247, 0.1);
+}
+
+/* Tasks list */
+.team-panel-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.team-panel-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.team-panel-task.completed {
+  opacity: 0.6;
+}
+
+.task-status-icon {
+  font-size: 10px;
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+}
+
+.task-status-icon.completed {
+  color: #22c55e;
+}
+
+.task-status-icon.in_progress {
+  color: var(--accent);
+}
+
+.task-status-icon.pending {
+  color: var(--text-muted);
+}
+
+.task-subject {
+  flex: 1;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-assignee {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  max-width: 100px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Messages list */
+.team-panel-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.team-panel-message {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.team-panel-message.unread {
+  background: rgba(0, 217, 255, 0.04);
+  border-left: 2px solid var(--accent);
+}
+
+.msg-from {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--accent);
+  flex-shrink: 0;
+  max-width: 80px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.msg-text {
+  flex: 1;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.msg-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   Agent Split View (tmux-style Agent Teams UI)
+   ============================================================ */
+
+.agent-split-view {
+  position: relative;
+  width: 100%;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transition: max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.agent-split-view.collapsed {
+  max-height: 36px;
+}
+
+.agent-split-view.expanded {
+  max-height: 400px;
+}
+
+/* Summary bar (always visible) - same as TeamPanel */
+.agent-split-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  height: 36px;
+  min-height: 36px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+}
+
+.agent-split-summary:hover {
+  background: rgba(0, 217, 255, 0.05);
+}
+
+.agent-split-view.expanded .agent-split-summary {
+  cursor: default;
+}
+
+.agent-split-view.expanded .agent-split-summary:hover {
+  background: transparent;
+}
+
+.agent-split-summary-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Split body - tmux-style 60/40 layout */
+.agent-split-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  max-height: 364px; /* 400px total - 36px summary bar */
+}
+
+/* Left pane - Lead Agent (60%) */
+.agent-main-pane {
+  flex: 0 0 60%;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.agent-pane-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 217, 255, 0.03);
+  flex-shrink: 0;
+}
+
+.agent-pane-icon {
+  font-size: 14px;
+}
+
+.agent-pane-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.agent-pane-badge {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.agent-pane-badge.lead {
+  color: var(--accent);
+  background: rgba(0, 217, 255, 0.15);
+}
+
+.agent-pane-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+}
+
+.agent-pane-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 8px 0;
+}
+
+/* Lead agent tasks preview */
+.agent-tasks-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-task-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.agent-task-item.completed {
+  opacity: 0.6;
+}
+
+.agent-task-item.in_progress {
+  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.task-status-icon {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.task-subject {
+  flex: 1;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Right pane - Teammates list (40%) */
+.agent-side-pane {
+  flex: 0 0 40%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.agent-side-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+  padding: 20px 10px;
+}
+
+/* Teammate mini cards */
+.agent-mini-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.agent-mini-card:hover {
+  background: rgba(168, 85, 247, 0.08);
+  border-color: rgba(168, 85, 247, 0.3);
+  transform: translateY(-1px);
+}
+
+.agent-mini-card.selected {
+  background: rgba(168, 85, 247, 0.15);
+  border-color: rgba(168, 85, 247, 0.5);
+  box-shadow: 0 2px 8px rgba(168, 85, 247, 0.2);
+}
+
+.agent-mini-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-mini-icon {
+  font-size: 12px;
+}
+
+.agent-mini-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.agent-mini-content {
+  padding-left: 18px; /* Align with name (icon width + gap) */
+}
+
+.agent-mini-task {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.task-subject-mini {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-mini-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* StatusBar team summary (removed - see TeamPanel instead) */
 
 /* System Block */
 .output-block-system {
@@ -3333,6 +4498,37 @@ body::before {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.autocomplete-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 2px;
+  border-bottom: 1px solid rgba(0, 217, 255, 0.08);
+  margin-bottom: 2px;
+}
+
+.autocomplete-header-cmd {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.autocomplete-header-label {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.autocomplete-desc {
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: auto;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .autocomplete-dropdown::-webkit-scrollbar {
@@ -4675,3 +5871,788 @@ mark.search-highlight.active {
   outline: 1px solid rgba(255, 165, 0, 0.9);
 }
 
+/* ===== Confirm Dialog ===== */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  animation: confirmFadeIn 0.15s ease-out;
+}
+
+@keyframes confirmFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes confirmSlideIn {
+  from { opacity: 0; transform: scale(0.95) translateY(-8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.confirm-dialog {
+  width: 340px;
+  padding: 20px 24px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 0 0 1px rgba(0, 217, 255, 0.08),
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    0 0 60px rgba(0, 217, 255, 0.05);
+  animation: confirmSlideIn 0.15s ease-out;
+}
+
+.confirm-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.confirm-message {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirm-btn {
+  padding: 7px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid var(--border);
+}
+
+.confirm-btn.cancel {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.confirm-btn.cancel:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+.confirm-btn.confirm {
+  background: rgba(0, 217, 255, 0.15);
+  color: var(--accent);
+  border-color: rgba(0, 217, 255, 0.3);
+}
+
+.confirm-btn.confirm:hover {
+  background: rgba(0, 217, 255, 0.25);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(0, 217, 255, 0.15);
+}
+
+.confirm-btn.confirm:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.confirm-btn.confirm.danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.confirm-btn.confirm.danger:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #ef4444;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.15);
+}
+
+/* ─── Search Panel (Ctrl+Shift+F) ─── */
+
+.search-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-primary);
+  border-right: 1px solid var(--border);
+}
+
+.search-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-panel-header h2 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.search-panel-input-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-panel-icon {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.search-panel-input {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+
+.search-panel-input:focus {
+  border-color: var(--accent);
+}
+
+.search-panel-input::placeholder {
+  color: var(--text-muted);
+}
+
+.search-panel-clear {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  border-radius: 3px;
+}
+
+.search-panel-clear:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.search-panel-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.search-panel-status {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.search-panel-count {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.search-file-group {
+  margin-bottom: 2px;
+}
+
+.search-file-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.search-file-header:hover {
+  background: var(--bg-hover);
+}
+
+.search-file-header svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.search-file-name {
+  font-weight: 500;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.search-file-path {
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.search-file-count {
+  flex-shrink: 0;
+  font-size: 10px;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.search-match-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 12px 2px 32px;
+  font-size: 12px;
+  cursor: pointer;
+  line-height: 1.6;
+}
+
+.search-match-item:hover {
+  background: var(--bg-hover);
+}
+
+.search-match-line {
+  flex-shrink: 0;
+  color: var(--accent);
+  font-size: 11px;
+  min-width: 28px;
+  text-align: right;
+  opacity: 0.7;
+}
+
+.search-match-text {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
+.search-highlight {
+  background: rgba(255, 213, 0, 0.3);
+  color: var(--text-primary);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* ─── Quick Open (Ctrl+P) ─── */
+
+.quick-open-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 80px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(3px);
+  animation: confirmFadeIn 0.12s ease-out;
+}
+
+.quick-open-container {
+  width: 560px;
+  max-height: 420px;
+  background: var(--bg-tertiary, #1a1a2e);
+  border: 1px solid rgba(0, 217, 255, 0.2);
+  border-radius: var(--radius-lg, 10px);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.5),
+    0 0 30px rgba(0, 217, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: confirmSlideIn 0.15s ease-out;
+}
+
+.quick-open-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(0, 217, 255, 0.12);
+}
+
+.quick-open-search-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.quick-open-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 15px;
+  font-family: inherit;
+  color: var(--text-primary);
+}
+
+.quick-open-input::placeholder {
+  color: var(--text-muted);
+}
+
+.quick-open-shortcut {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+}
+
+.quick-open-results {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 320px;
+}
+
+.quick-open-results::-webkit-scrollbar {
+  width: 5px;
+}
+
+.quick-open-results::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.quick-open-results::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.quick-open-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.08s;
+}
+
+.quick-open-item:hover,
+.quick-open-item.selected {
+  background: rgba(0, 217, 255, 0.08);
+}
+
+.quick-open-item.selected {
+  border-left: 2px solid var(--accent, #00d9ff);
+}
+
+.quick-open-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+.quick-open-path {
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-open-dir {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.quick-open-filename {
+  font-weight: 500;
+}
+
+.quick-open-status {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.quick-open-footer {
+  display: flex;
+  gap: 16px;
+  padding: 8px 16px;
+  border-top: 1px solid rgba(0, 217, 255, 0.12);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.quick-open-footer kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  margin-right: 3px;
+  font-size: 10px;
+  font-family: inherit;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+}
+
+/* ===== Tab Team Styles ===== */
+.tab-team-emoji {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.tab-team {
+  border-left: 2px solid rgba(0, 217, 255, 0.2);
+}
+
+.tab-teammate {
+  border-left-color: rgba(139, 92, 246, 0.3);
+}
+
+.tab-teammate .tab-title {
+  color: var(--text-secondary);
+}
+
+.tab-teammate.active .tab-title {
+  color: var(--text-primary);
+}
+
+.tab-team-separator {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  height: 100%;
+  pointer-events: none;
+}
+
+.tab-team-separator-label {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+}
+
+/* ===== Agent Teams Dashboard ===== */
+/* Styles kept for future use when AgentTeamsDashboard is integrated into a dedicated view */
+
+
+
+/* ========================================
+   tmux Layout Styles
+   ======================================== */
+
+.tmux-layout {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  gap: 1px;
+  background: var(--border);
+}
+
+/* Left pane: Lead terminal (60%) */
+.tmux-main-pane {
+  flex: 0 0 60%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+.tmux-pane-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.tmux-pane-icon {
+  font-size: 14px;
+}
+
+.tmux-pane-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tmux-pane-team {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.tmux-pane-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Right pane: Teammates info (40%) */
+.tmux-side-pane {
+  flex: 0 0 40%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.tmux-side-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.tmux-side-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tmux-side-progress {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.tmux-side-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Progress bar */
+.tmux-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.tmux-progress-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+  border-radius: 3px;
+}
+
+/* Task summary */
+.tmux-task-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tmux-task-stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
+  font-size: 11px;
+}
+
+.tmux-task-icon {
+  font-size: 12px;
+}
+
+.tmux-task-stat.completed .tmux-task-icon {
+  color: #22c55e;
+}
+
+.tmux-task-stat.in-progress .tmux-task-icon {
+  color: #3b82f6;
+}
+
+.tmux-task-stat.pending .tmux-task-icon {
+  color: #6b7280;
+}
+
+.tmux-task-label {
+  flex: 1;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.tmux-task-count {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Teammates list */
+.tmux-teammates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tmux-teammates-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+
+.tmux-teammate-card {
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  transition: all var(--transition-fast);
+}
+
+.tmux-teammate-card:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+}
+
+.tmux-teammate-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.tmux-teammate-icon {
+  font-size: 12px;
+}
+
+.tmux-teammate-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.tmux-teammate-type {
+  font-size: 9px;
+  color: var(--text-muted);
+  padding: 2px 6px;
+  background: var(--bg-secondary);
+  border-radius: 3px;
+}
+
+.tmux-teammate-task {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.tmux-task-status-icon {
+  flex-shrink: 0;
+}
+
+.tmux-task-subject {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tmux-teammate-idle {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.tmux-teammate-stats {
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+.tmux-teammates-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: italic;
+}
+
+/* Recent tasks */
+.tmux-recent-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tmux-recent-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.tmux-recent-task {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  border-left: 2px solid transparent;
+  transition: all var(--transition-fast);
+}
+
+.tmux-recent-task:hover {
+  background: var(--bg-tertiary);
+}
+
+.tmux-recent-task.completed {
+  border-left-color: #22c55e;
+}
+
+.tmux-recent-task.in_progress {
+  border-left-color: #3b82f6;
+}
+
+.tmux-recent-task.pending {
+  border-left-color: #6b7280;
+}
+
+.tmux-task-assignee {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 9px;
+}

@@ -11,13 +11,16 @@ export interface Tab {
   editingFilePath?: string | null  // 탭별 파일 에디터 경로
   terminalId?: number
   claudeStatus: ClaudeStatus
+  teamName?: string       // Agent Teams 소속 팀명
+  memberRole?: 'lead' | 'teammate'  // 팀 내 역할
+  isHiddenSplitPane?: boolean  // Split 모드 전용 숨겨진 pane (TabBar에 표시 안 함)
 }
 
 interface TabStore {
   tabs: Tab[]
   activeTabId: string | null
   tabCounter: number
-  addTab: (cwd?: string, explorerPath?: string) => void
+  addTab: (cwd?: string, explorerPath?: string, isHiddenSplitPane?: boolean) => void
   removeTab: (id: string) => void
   setActiveTab: (id: string) => void
   updateTabTitle: (id: string, title: string) => void
@@ -26,6 +29,7 @@ interface TabStore {
   updateEditingFilePath: (id: string, filePath: string | null) => void
   setTerminalId: (tabId: string, terminalId: number) => void
   setClaudeStatus: (tabId: string, status: ClaudeStatus) => void
+  setTabTeamInfo: (tabId: string, teamName: string | undefined, memberRole: 'lead' | 'teammate' | undefined) => void
   reorderTabs: (fromIndex: number, toIndex: number) => void
   restoreSession: () => void
 }
@@ -40,13 +44,14 @@ function createDashboardTab(): Tab {
   }
 }
 
-function createTab(counter: number, cwd?: string, explorerPath?: string): Tab {
+function createTab(counter: number, cwd?: string, explorerPath?: string, isHiddenSplitPane?: boolean): Tab {
   return {
     id: `tab-${counter}`,
     title: `Terminal ${counter}`,
     cwd: cwd || '~',
     explorerPath,
     claudeStatus: 'idle',
+    isHiddenSplitPane,
   }
 }
 
@@ -55,12 +60,12 @@ export const useTabStore = create<TabStore>()((set, get) => ({
   activeTabId: 'dashboard',
   tabCounter: 0,
 
-  addTab: (cwd?: string, explorerPath?: string) => {
+  addTab: (cwd?: string, explorerPath?: string, isHiddenSplitPane?: boolean) => {
     const newCounter = get().tabCounter + 1
-    const newTab = createTab(newCounter, cwd, explorerPath)
+    const newTab = createTab(newCounter, cwd, explorerPath, isHiddenSplitPane)
     set((state) => ({
       tabs: [...state.tabs, newTab],
-      activeTabId: newTab.id,
+      activeTabId: isHiddenSplitPane ? state.activeTabId : newTab.id,  // Don't switch to hidden tabs
       tabCounter: newCounter,
     }))
   },
@@ -115,6 +120,11 @@ export const useTabStore = create<TabStore>()((set, get) => ({
   setClaudeStatus: (tabId, status) =>
     set((state) => ({
       tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, claudeStatus: status } : t)),
+    })),
+
+  setTabTeamInfo: (tabId, teamName, memberRole) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, teamName, memberRole } : t)),
     })),
 
   reorderTabs: (fromIndex, toIndex) => {

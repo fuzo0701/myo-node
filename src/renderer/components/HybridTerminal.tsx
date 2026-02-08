@@ -9,12 +9,15 @@ import OutputArea, { OutputBlock } from './OutputArea'
 import TerminalInput, { TerminalInputHandle } from './TerminalInput'
 import ClaudeInfoBar from './ClaudeInfoBar'
 import SearchBar from './SearchBar'
+import TmuxLayout from './TmuxLayout'
 import { highlightMatches, clearHighlights, activateMatch } from '../utils/domSearch'
 import { useThemeStore } from '../store/theme'
 import { useHistoryStore } from '../store/history'
 import { useSettingsStore } from '../store/settings'
 import { useTabStore } from '../store/tabs'
 import { useClaudeInfoStore } from '../store/claudeInfo'
+import { useNotificationStore } from '../store/notifications'
+import { useAgentTeamsStore } from '../store/agentTeams'
 import { parseClaudeInfo } from '../utils/claudeInfoParser'
 
 type ShellType = 'default' | 'powershell' | 'cmd' | 'bash' | 'zsh'
@@ -68,13 +71,25 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
   const theme = useThemeStore((state) => state.currentTheme)
   const renderMode = useSettingsStore((state) => state.renderMode)
   const shell = useSettingsStore((state) => state.shell)
+  const autoScroll = useSettingsStore((state) => state.autoScroll)
   const { createConversation, addMessage } = useHistoryStore()
   const { tabs, setTerminalId, updateTabCwd, updateTabTitle, setClaudeStatus } = useTabStore()
   const updateClaudeSession = useClaudeInfoStore((s) => s.updateSession)
 
-  // Get current tab's cwd
+  // Get current tab's cwd and team info
   const currentTab = tabs.find(t => t.id === tabId)
   const tabCwd = currentTab?.cwd || '~'
+  const tabTeamName = currentTab?.teamName
+  const teams = useAgentTeamsStore(s => s.teams)
+  const activeTeam = tabTeamName ? teams[tabTeamName] : null
+
+  // Get teammate mode setting from Claude config
+  const [teammateMode, setTeammateMode] = useState<string>('auto')
+  useEffect(() => {
+    window.claude?.readAgentTeamsConfig().then(config => {
+      setTeammateMode(config.teammateMode || 'auto')
+    }).catch(() => {})
+  }, [])
 
   // Claude detection state - use refs to avoid closure issues
   // Only update React state in 'rendered' mode (where we need it for conditional CSS)
@@ -111,6 +126,8 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
   // Claude status tracking for tab indicator
   const claudeLoadingTimerRef = useRef<NodeJS.Timeout | null>(null)
   const CLAUDE_LOADING_DEBOUNCE_MS = 2000 // Wait 2 seconds of silence to show "loading" status
+  const lastPermissionNotiRef = useRef<number>(0) // Deduplicate permission notifications
+  const lastCompletedNotiRef = useRef<number>(0) // Deduplicate completed notifications
   const setClaudeStatusRef = useRef(setClaudeStatus)
   const tabIdRef = useRef(tabId)
   useEffect(() => {
@@ -124,7 +141,8 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     () => (tabId ? outputBlocksCache.get(tabId) ?? [] : [])
   )
   const currentOutputRef = useRef<string>(tabId ? currentOutputCache.get(tabId) ?? '' : '')
-  const currentBlockTypeRef = useRef<'output' | 'claude'>('output')
+  const currentBlockTypeRef = useRef<'output' | 'claude' | 'teammate'>('output')
+  const currentTeammateNameRef = useRef<string | null>(null)
   const echoSuppressRef = useRef<string | null>(null)
   const terminalInputRef = useRef<TerminalInputHandle>(null)
   // Track xterm buffer row where Claude output started (for reading clean text)
@@ -134,6 +152,10 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
   useEffect(() => {
     renderModeRef.current = renderMode
   }, [renderMode])
+
+  // === Agent Split View - TODO: tmux 모드 구현 예정 ===
+  // const [agentViewOpen, setAgentViewOpen] = useState(false)
+  // const [teammateMode, setTeammateMode] = useState<string>('auto')
 
   // === Search state ===
   const searchAddonRef = useRef<SearchAddon | null>(null)
@@ -151,11 +173,16 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     if (xtermRevealedRef.current) return
     xtermRevealedRef.current = true
     setXtermRevealed(true)
+    console.log('🔓 Revealing xterm (Claude TUI active)')
     // Refit xterm to fill the now-visible container
     setTimeout(() => {
       fitAddonRef.current?.fit()
-      // Keep focus on TerminalInput (Korean-safe input)
-      terminalInputRef.current?.focus()
+      // Focus xterm for Claude TUI interaction (allows Y/n permission responses)
+      const term = terminalRef.current
+      if (term) {
+        console.log('✅ Auto-focusing xterm for Claude interaction')
+        term.focus()
+      }
       // Sync PTY size after fit
       if (ptyIdRef.current !== null && terminalRef.current) {
         const { cols, rows } = terminalRef.current
@@ -207,6 +234,28 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     /thinking\.\.\./i,        // Thinking indicator
     /Co-Authored-By:.*Claude/i, // Git commit pattern
   ], [])
+
+  // Patterns to detect Agent Teams teammate output
+  // Claude Code teammate output typically includes agent name headers or [teammate] markers
+  const teammatePatterns = useMemo(() => [
+    /\[teammate:?\s*([^\]]+)\]/i,           // [teammate: AgentName] or [teammate AgentName]
+    /^🤖\s*(.+?)(?:\s*[-:]|$)/m,            // 🤖 AgentName: ... or 🤖 AgentName
+    /Agent\s+"([^"]+)"\s+(?:started|working|completed)/i, // Agent "Name" started/working/completed
+    /teammate\s+"([^"]+)"/i,                 // teammate "Name" ...
+    /Spawning teammate:?\s*(.+)/i,           // Spawning teammate: Name
+    /\[Agent\s+([^\]]+)\]/i,                 // [Agent Name]
+  ], [])
+
+  // Detect if data contains teammate output, returns teammate name or null
+  const detectTeammateOutput = useCallback((data: string): string | null => {
+    for (const pattern of teammatePatterns) {
+      const match = data.match(pattern)
+      if (match && match[1]) {
+        return match[1].trim()
+      }
+    }
+    return null
+  }, [teammatePatterns])
 
   // Track isActive state in ref for use in callbacks
   const isActiveRef = useRef(isActive)
@@ -367,13 +416,14 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     }
     currentOutputRef.current = ''
     currentBlockTypeRef.current = 'output'
+    currentTeammateNameRef.current = null
   }, [])
 
   // === Abstracted mode: schedule streaming update for output blocks ===
-  const scheduleOutputBlockUpdate = useCallback((content: string, blockType: 'output' | 'claude') => {
+  const scheduleOutputBlockUpdate = useCallback((content: string, blockType: 'output' | 'claude' | 'teammate', teammateName?: string) => {
     setOutputBlocks((prev) => {
       const last = prev[prev.length - 1]
-      if (last?.isStreaming && last.type === blockType) {
+      if (last?.isStreaming && last.type === blockType && (blockType !== 'teammate' || last.teammateName === teammateName)) {
         return [
           ...prev.slice(0, -1),
           { ...last, content, isStreaming: true },
@@ -381,7 +431,7 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       } else {
         return [
           ...prev,
-          { id: nextBlockId(), type: blockType, content, timestamp: Date.now(), isStreaming: true },
+          { id: nextBlockId(), type: blockType, content, timestamp: Date.now(), isStreaming: true, teammateName },
         ]
       }
     })
@@ -469,7 +519,12 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
 
     // Restore focus
     if (renderModeRef.current === 'abstracted') {
-      terminalInputRef.current?.focus()
+      // If xterm is revealed (Claude TUI active), keep focus on xterm
+      if (xtermRevealedRef.current) {
+        terminalRef.current?.focus()
+      } else {
+        terminalInputRef.current?.focus()
+      }
     } else {
       terminalRef.current?.focus()
     }
@@ -484,6 +539,31 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     window.addEventListener('open-search', handleOpenSearch)
     return () => window.removeEventListener('open-search', handleOpenSearch)
   }, [])
+
+  // Page Up/Down scrolling for abstracted mode
+  useEffect(() => {
+    if (renderMode !== 'abstracted' || !isActive) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const wrapper = outputAreaRef.current
+      if (!wrapper || xtermRevealedRef.current) return
+
+      // Find the actual scrollable .output-area element inside the wrapper
+      const scrollable = wrapper.querySelector('.output-area') as HTMLElement
+      if (!scrollable) return
+
+      if (e.key === 'PageUp') {
+        e.preventDefault()
+        scrollable.scrollBy({ top: -scrollable.clientHeight * 0.9, behavior: 'smooth' })
+      } else if (e.key === 'PageDown') {
+        e.preventDefault()
+        scrollable.scrollBy({ top: scrollable.clientHeight * 0.9, behavior: 'smooth' })
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [renderMode, isActive])
 
   // Listen for xterm SearchAddon result events
   useEffect(() => {
@@ -502,7 +582,14 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
 
   const handleTerminalData = useCallback((data: string) => {
     // Always write to xterm - terminal output should always be visible
-    terminalRef.current?.write(data)
+    const term = terminalRef.current
+    if (term) {
+      term.write(data)
+      // Auto-scroll to bottom if enabled
+      if (autoScroll) {
+        term.scrollToBottom()
+      }
+    }
 
     // Detect Claude output (for history and visual rendering)
     const isClaudeData = detectClaudeOutput(data)
@@ -521,6 +608,20 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       }
     }
 
+    // Permission request detection (Claude Code uses "Allow Tool(...)" + "(Y/n)" format)
+    if (/\(Y\/n\)/i.test(strippedData) || /\(Y\)es.*\(N\)o/i.test(strippedData) || /Allow\s+(Read|Write|Edit|Bash|Glob|Grep|Search|Task|mcp_)/i.test(strippedData)) {
+      const now = Date.now()
+      if (now - lastPermissionNotiRef.current > 5000) {
+        lastPermissionNotiRef.current = now
+        // Notifications disabled
+        // useNotificationStore.getState().addNotification({
+        //   type: 'warning',
+        //   title: 'Permission request',
+        //   tabId: tabIdRef.current ?? undefined,
+        // })
+      }
+    }
+
     // Check if prompt has returned (Claude session ended)
     // Only test the LAST non-empty line to avoid false matches from Claude's streaming output
     const dataLines = strippedData.split('\n')
@@ -532,7 +633,9 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       }
     }
     // Only consider prompt return on small data chunks (large chunks = still streaming)
-    const isPromptReturn = lastLine.length > 0 && strippedData.length < 500 &&
+    // When Claude is active, skip size check — TUI exit screen redraws can be large
+    const isPromptReturn = lastLine.length > 0 &&
+      (isClaudeActiveRef.current || strippedData.length < 500) &&
       promptPatterns.some(pattern => pattern.test(lastLine))
 
     if (isClaudeData && !isClaudeActiveRef.current) {
@@ -578,7 +681,21 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       // Check for prompt return (completion)
       if (isPromptReturn) {
         // Prompt detected - Claude session completed
+        if (claudeEndTimerRef.current) {
+          clearTimeout(claudeEndTimerRef.current)
+          claudeEndTimerRef.current = null
+        }
         setClaudeStatusRef.current(tabIdRef.current, 'completed')
+        const nowComp = Date.now()
+        if (nowComp - lastCompletedNotiRef.current > 5000) {
+          lastCompletedNotiRef.current = nowComp
+          // Notifications disabled
+          // useNotificationStore.getState().addNotification({
+          //   type: 'success',
+          //   title: 'Claude completed',
+          //   tabId: tabIdRef.current ?? undefined,
+          // })
+        }
         claudeDeactivatedAtRef.current = Date.now()
         setIsClaudeActive(false)
         finalizeBlock()
@@ -597,6 +714,32 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
             console.log('[Status] Claude loading (waiting for response)')
           }
         }, CLAUDE_LOADING_DEBOUNCE_MS)
+
+        // Abstracted mode: detect response-end via silence debounce
+        // In interactive Claude TUI, shell prompt never returns, so prompt-based
+        // detection doesn't work. Use 1s silence debounce to detect response end.
+        if (renderModeRef.current === 'abstracted') {
+          if (claudeEndTimerRef.current) {
+            clearTimeout(claudeEndTimerRef.current)
+          }
+          claudeEndTimerRef.current = setTimeout(() => {
+            if (isClaudeActiveRef.current && tabIdRef.current) {
+              setClaudeStatusRef.current(tabIdRef.current, 'completed')
+              const nowComp = Date.now()
+              if (nowComp - lastCompletedNotiRef.current > 5000) {
+                lastCompletedNotiRef.current = nowComp
+                // Notifications disabled
+                // useNotificationStore.getState().addNotification({
+                //   type: 'success',
+                //   title: 'Claude completed',
+                //   tabId: tabIdRef.current ?? undefined,
+                // })
+              }
+              console.log('[Status] Claude response ended (abstracted debounce)')
+            }
+            claudeEndTimerRef.current = null
+          }, CLAUDE_END_DEBOUNCE_MS)
+        }
       }
     }
 
@@ -626,11 +769,26 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
         echoSuppressRef.current = null
       }
 
+      // Detect teammate output and update block type accordingly
+      const detectedTeammate = detectTeammateOutput(strippedData)
+      if (detectedTeammate) {
+        // If switching from a different block type or different teammate, finalize current
+        if (currentBlockTypeRef.current !== 'teammate' || currentTeammateNameRef.current !== detectedTeammate) {
+          if (currentOutputRef.current.trim()) {
+            finalizeOutputBlock()
+          }
+          currentBlockTypeRef.current = 'teammate'
+          currentTeammateNameRef.current = detectedTeammate
+        }
+      }
+
       // Accumulate raw data FIRST (before prompt return check to avoid data loss)
       currentOutputRef.current += data
 
-      // Schedule a streaming update
-      scheduleOutputBlockUpdate(currentOutputRef.current, 'output')
+      // Schedule a streaming update with detected block type
+      const blockType = currentBlockTypeRef.current
+      const teammateName = blockType === 'teammate' ? currentTeammateNameRef.current ?? undefined : undefined
+      scheduleOutputBlockUpdate(currentOutputRef.current, blockType, teammateName)
 
       // Prompt return in abstracted mode: finalize after data is accumulated
       if (isPromptReturn && !isClaudeActiveRef.current) {
@@ -657,10 +815,20 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
         // Set to completed when Claude response ends
         if (tabIdRef.current) {
           setClaudeStatusRef.current(tabIdRef.current, 'completed')
+          const nowComp = Date.now()
+          if (nowComp - lastCompletedNotiRef.current > 5000) {
+            lastCompletedNotiRef.current = nowComp
+            // Notifications disabled
+            // useNotificationStore.getState().addNotification({
+            //   type: 'success',
+            //   title: 'Claude completed',
+            //   tabId: tabIdRef.current ?? undefined,
+            // })
+          }
         }
       }, CLAUDE_END_DEBOUNCE_MS)
     }
-  }, [renderMode, detectClaudeOutput, scheduleBlockUpdate, finalizeBlock, stripAnsi, promptPatterns, finalizeOutputBlock, scheduleOutputBlockUpdate, updateClaudeSession, setIsClaudeActive, revealXterm, hideXterm])
+  }, [renderMode, detectClaudeOutput, detectTeammateOutput, scheduleBlockUpdate, finalizeBlock, stripAnsi, promptPatterns, finalizeOutputBlock, scheduleOutputBlockUpdate, updateClaudeSession, setIsClaudeActive, revealXterm, hideXterm, autoScroll])
 
   // === Abstracted mode: command submit handler ===
   const handleCommandSubmit = useCallback((command: string) => {
@@ -1106,10 +1274,15 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     if (!tabId || !isActive) return
     const term = terminalRef.current
     if (renderMode === 'abstracted') {
-      terminalInputRef.current?.focus()
-      if (xtermRevealedRef.current && term) {
-        fitAddonRef.current?.fit()
-        term.refresh(0, term.rows - 1)
+      // Only focus input if xterm is NOT revealed
+      if (xtermRevealedRef.current) {
+        if (term) {
+          fitAddonRef.current?.fit()
+          term.refresh(0, term.rows - 1)
+          term.focus() // Keep focus on xterm when it's active
+        }
+      } else {
+        terminalInputRef.current?.focus()
       }
     } else {
       fitAddonRef.current?.fit()
@@ -1144,6 +1317,8 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       // Don't steal focus if user is selecting text (for copy)
       const sel = window.getSelection()
       if (sel && sel.toString().length > 0) return
+      // Don't steal focus if xterm is revealed (Claude TUI active)
+      if (xtermRevealedRef.current) return
       terminalInputRef.current?.focus()
     }
     el.addEventListener('mouseenter', handleMouseEnter)
@@ -1245,6 +1420,59 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
 
   // === Abstracted mode render ===
   if (renderMode === 'abstracted') {
+    // Check if tmux mode should be active
+    const useTmuxMode = activeTeam && teammateMode === 'tmux' && currentTab
+
+    // Terminal content (shared between tmux and normal mode)
+    const terminalContent = (
+      <>
+        {/* xterm — hidden by default, revealed full-size when Claude TUI is active */}
+        <div
+          ref={terminalContainerRef}
+          className="xterm-abstracted"
+          onClick={(e) => {
+            console.log('🖱️ Terminal clicked, xtermRevealed:', xtermRevealed)
+            if (xtermRevealed) {
+              e.stopPropagation() // Prevent parent onClick from focusing input
+              const term = terminalRef.current
+              if (term) {
+                console.log('✅ Focusing terminal (xterm)')
+                term.focus()
+              } else {
+                console.warn('⚠️ Terminal ref is null!')
+              }
+            } else {
+              console.log('ℹ️ xterm is hidden, skipping focus')
+            }
+          }}
+        />
+        {/* Output blocks area - mousedown blurs textarea so Ctrl+C does native copy */}
+        <div ref={outputAreaRef} className="output-area-wrapper" onMouseDown={() => terminalInputRef.current?.blur()}>
+          <OutputArea blocks={outputBlocks} />
+        </div>
+        {/* Claude session info bar */}
+        <ClaudeInfoBar tabId={tabId} />
+        {/* Input bar */}
+        <div
+          className="input-bar-wrapper"
+          onClick={(e) => {
+            console.log('🖱️ Input bar clicked')
+            e.stopPropagation() // Prevent parent onClick
+            terminalInputRef.current?.focus()
+          }}
+        >
+          <TerminalInput
+            ref={terminalInputRef}
+            onSubmit={handleCommandSubmit}
+            onSignal={handleSignal}
+            commandHistory={commandHistory}
+            claudeActiveRef={isClaudeActiveRef}
+            cwd={tabCwd}
+          />
+        </div>
+      </>
+    )
+
     return (
       <div
         ref={containerRef}
@@ -1252,7 +1480,16 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
         onClick={() => {
           // Don't steal focus if user is selecting text (for copy)
           const sel = window.getSelection()
-          if (sel && sel.toString().length > 0) return
+          if (sel && sel.toString().length > 0) {
+            console.log('🔍 Text selected, not focusing input')
+            return
+          }
+          // If xterm is revealed, don't auto-focus input (let explicit clicks handle it)
+          if (xtermRevealed) {
+            console.log('🖱️ Container clicked (xterm active), no auto-focus')
+            return
+          }
+          console.log('🖱️ Container clicked, focusing input')
           terminalInputRef.current?.focus()
         }}
       >
@@ -1265,27 +1502,15 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
           onFindPrev={handleFindPrev}
           matchInfo={searchMatchInfo}
         />
-        {/* xterm — hidden by default, revealed full-size when Claude TUI is active */}
-        <div
-          ref={terminalContainerRef}
-          className="xterm-abstracted"
-        />
-        {/* Output blocks area - mousedown blurs textarea so Ctrl+C does native copy */}
-        <div ref={outputAreaRef} className="output-area-wrapper" onMouseDown={() => terminalInputRef.current?.blur()}>
-          <OutputArea blocks={outputBlocks} />
-        </div>
-        {/* Claude session info bar */}
-        <ClaudeInfoBar tabId={tabId} />
-        {/* Input bar */}
-        <div className="input-bar-wrapper">
-          <TerminalInput
-            ref={terminalInputRef}
-            onSubmit={handleCommandSubmit}
-            onSignal={handleSignal}
-            commandHistory={commandHistory}
-            claudeActiveRef={isClaudeActiveRef}
-          />
-        </div>
+
+        {/* tmux mode: Split layout with team info */}
+        {useTmuxMode ? (
+          <TmuxLayout team={activeTeam} currentTab={currentTab}>
+            {terminalContent}
+          </TmuxLayout>
+        ) : (
+          terminalContent
+        )}
       </div>
     )
   }
@@ -1309,8 +1534,22 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       <div
         ref={terminalContainerRef}
         className={`terminal-area ${renderMode === 'rendered' && isClaudeActive ? 'hidden' : ''}`}
-        onClick={() => terminalRef.current?.focus()}
+        onClick={() => {
+          console.log('🖱️ Terminal area clicked (non-abstracted mode)')
+          const term = terminalRef.current
+          if (term) {
+            console.log('✅ Focusing terminal')
+            term.focus()
+          } else {
+            console.warn('⚠️ Terminal ref is null!')
+          }
+        }}
       />
+
+      {/* Claude session info bar */}
+      <ClaudeInfoBar tabId={tabId} />
+
+      {/* Agent Split View - tmux 모드 구현 예정 */}
     </div>
   )
 }

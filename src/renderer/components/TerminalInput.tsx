@@ -8,7 +8,7 @@ import {
   useImperativeHandle,
   type RefObject,
 } from 'react'
-import { paletteCommands, slashCommands, CommandSuggestion } from '../data/commands'
+import { paletteCommands, slashCommands, CommandSuggestion, CommandOption } from '../data/commands'
 
 export interface TerminalInputHandle {
   focus: () => void
@@ -21,12 +21,18 @@ interface TerminalInputProps {
   onSignal: (signal: string) => void
   commandHistory?: string[]
   claudeActiveRef?: RefObject<boolean>
+  cwd?: string
+}
+
+interface FileEntry {
+  name: string
+  type: 'file' | 'directory'
 }
 
 const MAX_SUGGESTIONS = 6
 
 const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
-  function TerminalInput({ onSubmit, onSignal, commandHistory = [], claudeActiveRef }, ref) {
+  function TerminalInput({ onSubmit, onSignal, commandHistory = [], claudeActiveRef, cwd }, ref) {
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const [value, setValue] = useState('')
     const [historyIndex, setHistoryIndex] = useState(-1)
@@ -70,6 +76,36 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
       adjustHeight()
     }, [value, adjustHeight])
 
+    // Dynamic skills loaded from ~/.claude/skills/ at mount
+    const [dynamicSkills, setDynamicSkills] = useState<CommandSuggestion[]>([])
+    useEffect(() => {
+      window.claude?.listSkills().then(skills => {
+        const existing = new Set(slashCommands.map(s => s.command))
+        const dynamic: CommandSuggestion[] = []
+        for (const skill of skills) {
+          const cmds = skill.commands.length > 0 ? skill.commands : [`/${skill.name}`]
+          for (const cmd of cmds) {
+            if (existing.has(cmd)) continue
+            existing.add(cmd)
+            dynamic.push({
+              id: `dyn-${cmd}`,
+              label: cmd,
+              command: cmd,
+              source: 'slash',
+              category: 'skill',
+              description: skill.description || skill.name,
+              icon: '🔧',
+            })
+          }
+        }
+        if (dynamic.length > 0) setDynamicSkills(dynamic)
+      }).catch(() => {})
+    }, [])
+
+    const allSlashCommands = useMemo(() =>
+      dynamicSkills.length > 0 ? [...slashCommands, ...dynamicSkills] : slashCommands
+    , [dynamicSkills])
+
     // Build history suggestions from commandHistory prop
     const historySuggestions = useMemo<CommandSuggestion[]>(() => {
       return commandHistory.map((cmd, i) => ({
@@ -80,8 +116,114 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
       }))
     }, [commandHistory])
 
+    // @ file/folder autocomplete
+    const [fileEntries, setFileEntries] = useState<FileEntry[]>([])
+    const fileEntriesCwdRef = useRef<string>('')
+
+    // Detect @ context: find last @ in the input value
+    const atContext = useMemo<{ atIndex: number; query: string } | null>(() => {
+      // Find last @ not preceded by alphanumeric (word boundary-ish)
+      const lastAt = value.lastIndexOf('@')
+      if (lastAt < 0) return null
+      // @ must be at start or preceded by space
+      if (lastAt > 0 && value[lastAt - 1] !== ' ') return null
+      const query = value.slice(lastAt + 1)
+      // Stop if query contains space (user moved past the @ token)
+      if (query.includes(' ')) return null
+      return { atIndex: lastAt, query }
+    }, [value])
+
+    // Fetch directory listing when @ is detected
+    useEffect(() => {
+      if (!atContext || !cwd || cwd === '~') return
+      // Only refetch if cwd changed
+      if (fileEntriesCwdRef.current === cwd && fileEntries.length > 0) return
+      fileEntriesCwdRef.current = cwd
+      window.fs?.readDirectory(cwd).then((entries: FileEntry[]) => {
+        setFileEntries(entries.sort((a, b) => {
+          if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
+          return a.name.localeCompare(b.name)
+        }))
+      }).catch(() => setFileEntries([]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [atContext !== null, cwd])
+
+    // Listen for external text insertion (e.g., from file explorer "Add to Claude")
+    useEffect(() => {
+      const insertHandler = (e: Event) => {
+        const text = (e as CustomEvent<string>).detail
+        if (text) {
+          setValue(prev => prev + text)
+          textareaRef.current?.focus()
+        }
+      }
+      const focusHandler = () => textareaRef.current?.focus()
+      window.addEventListener('insert-to-input', insertHandler)
+      window.addEventListener('focus-terminal-input', focusHandler)
+      return () => {
+        window.removeEventListener('insert-to-input', insertHandler)
+        window.removeEventListener('focus-terminal-input', focusHandler)
+      }
+    }, [])
+
+    // Build a lookup: command string → options array
+    const optionsMap = useMemo(() => {
+      const map = new Map<string, { options: CommandOption[]; icon?: string }>()
+      for (const cmd of [...allSlashCommands, ...paletteCommands]) {
+        if (cmd.options && cmd.options.length > 0) {
+          map.set(cmd.command, { options: cmd.options, icon: cmd.icon })
+        }
+      }
+      return map
+    }, [allSlashCommands])
+
+    // Detect if we're in "option mode" (user typed a known command + space)
+    const optionContext = useMemo<{ baseCommand: string; options: CommandOption[]; icon?: string; filter: string } | null>(() => {
+      const input = value.trimEnd() === value ? value : value // preserve trailing space
+      for (const [cmd, data] of optionsMap) {
+        // Match "command " or "command arg..."
+        if (input.toLowerCase() === cmd.toLowerCase() + ' ' || input.toLowerCase().startsWith(cmd.toLowerCase() + ' ')) {
+          const afterCmd = input.slice(cmd.length + 1)
+          return { baseCommand: cmd, options: data.options, icon: data.icon, filter: afterCmd }
+        }
+      }
+      return null
+    }, [value, optionsMap])
+
     // Compute suggestions based on current input (pure computation, no side effects)
     const suggestions = useMemo<CommandSuggestion[]>(() => {
+      // @ file mode: show file/folder entries
+      if (atContext && fileEntries.length > 0) {
+        const q = atContext.query.toLowerCase()
+        return fileEntries
+          .filter(e => !q || e.name.toLowerCase().includes(q))
+          .slice(0, MAX_SUGGESTIONS)
+          .map((entry, i) => ({
+            id: `file-${i}`,
+            label: entry.name,
+            command: entry.name, // will be handled specially in acceptSuggestion
+            source: 'slash' as const,
+            description: entry.type === 'directory' ? 'folder' : 'file',
+            icon: entry.type === 'directory' ? '📁' : '📄',
+          }))
+      }
+
+      // Option mode: show command options as suggestions
+      if (optionContext) {
+        const filterLower = optionContext.filter.toLowerCase()
+        return optionContext.options
+          .filter(opt => !filterLower || opt.label.toLowerCase().includes(filterLower) || opt.value.toLowerCase().includes(filterLower))
+          .slice(0, MAX_SUGGESTIONS)
+          .map((opt, i) => ({
+            id: `opt-${i}`,
+            label: opt.label,
+            command: opt.value,
+            source: 'slash' as const,
+            description: opt.description,
+            icon: optionContext.icon,
+          }))
+      }
+
       const input = value.trim()
       if (!input) return []
 
@@ -89,7 +231,7 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
       let candidates: CommandSuggestion[]
 
       if (input.startsWith('/')) {
-        candidates = slashCommands
+        candidates = allSlashCommands
       } else {
         candidates = [...historySuggestions, ...paletteCommands]
       }
@@ -126,7 +268,7 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
       }
 
       return result
-    }, [value, historySuggestions])
+    }, [value, historySuggestions, optionContext, atContext, fileEntries])
 
     // Sync suggestions ref
     useEffect(() => { suggestionsRef.current = suggestions }, [suggestions])
@@ -142,10 +284,26 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
     }, [suggestions, value])
 
     const acceptSuggestion = useCallback((command: string) => {
-      setValue(command)
-      setShowSuggestions(false)
+      // @ file mode: replace @query with @filename
+      if (atContext) {
+        const before = value.slice(0, atContext.atIndex)
+        const fileName = command.includes(' ') ? `@"${command}" ` : `@${command} `
+        setValue(before + fileName)
+        setShowSuggestions(false)
+        textareaRef.current?.focus()
+        return
+      }
+      // If this command has options and we're not already in option mode, append space to trigger options
+      const hasOptions = optionsMap.has(command)
+      if (hasOptions) {
+        setValue(command + ' ')
+        // Keep suggestions open — the space will trigger option mode in the next render
+      } else {
+        setValue(command)
+        setShowSuggestions(false)
+      }
       textareaRef.current?.focus()
-    }, [])
+    }, [optionsMap, atContext, value])
 
     const handleChange = useCallback(
       (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -230,29 +388,8 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
           return
         }
 
-        // When Claude is active, forward arrow keys to PTY as escape sequences
-        if (claudeActiveRef?.current) {
-          if (e.key === 'ArrowUp') {
-            e.preventDefault()
-            onSignal('\x1b[A')
-            return
-          }
-          if (e.key === 'ArrowDown') {
-            e.preventDefault()
-            onSignal('\x1b[B')
-            return
-          }
-          if (e.key === 'ArrowRight') {
-            e.preventDefault()
-            onSignal('\x1b[C')
-            return
-          }
-          if (e.key === 'ArrowLeft') {
-            e.preventDefault()
-            onSignal('\x1b[D')
-            return
-          }
-        }
+        // Arrow keys work in input field (cursor movement, history navigation)
+        // Users can click on the terminal to interact with it directly when needed
 
         // Arrow Up: history prev (only if cursor is at first line and dropdown is closed)
         if (e.key === 'ArrowUp' && !isSuggestionsOpen) {
@@ -321,6 +458,18 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
         {/* Autocomplete dropdown (rendered above input) */}
         {showSuggestions && suggestions.length > 0 && (
           <div className="autocomplete-dropdown">
+            {atContext && (
+              <div className="autocomplete-header">
+                <span className="autocomplete-header-cmd">@</span>
+                <span className="autocomplete-header-label">files &amp; folders</span>
+              </div>
+            )}
+            {optionContext && !atContext && (
+              <div className="autocomplete-header">
+                <span className="autocomplete-header-cmd">{optionContext.baseCommand}</span>
+                <span className="autocomplete-header-label">options</span>
+              </div>
+            )}
             {suggestions.map((s, i) => (
               <div
                 key={s.id}
@@ -331,9 +480,12 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
                 }}
                 onMouseEnter={() => setSelectedSuggestionIndex(i)}
               >
-                <span className="autocomplete-icon">{sourceIcon(s.source)}</span>
+                <span className="autocomplete-icon">{atContext ? s.icon : optionContext ? '›' : sourceIcon(s.source)}</span>
                 <span className="autocomplete-label">{s.source === 'history' ? s.command : s.label}</span>
-                {s.source !== 'history' && s.label !== s.command && (
+                {s.description && (atContext || optionContext) && (
+                  <span className="autocomplete-desc">{s.description}</span>
+                )}
+                {!optionContext && !atContext && s.source !== 'history' && s.label !== s.command && (
                   <span className="autocomplete-command">{s.command}</span>
                 )}
               </div>

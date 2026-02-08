@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Tab, ClaudeStatus } from '../store/tabs'
+import ConfirmDialog from './ConfirmDialog'
 
 type SplitMode = 'none' | 'horizontal' | 'vertical'
 
@@ -123,6 +124,7 @@ export default function TabBar({
 }: TabBarProps) {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const [closingTabId, setClosingTabId] = useState<string | null>(null)
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
     setDraggedIndex(index)
@@ -167,51 +169,64 @@ export default function TabBar({
   return (
     <div className="tab-bar">
       <div className="tabs">
-        {tabs.map((tab, index) => (
-          <div
-            key={tab.id}
-            className={`tab ${tab.id === activeTabId ? 'active' : ''} ${
-              draggedIndex === index ? 'dragging' : ''
-            } ${dragOverIndex === index ? 'drag-over' : ''} ${
-              dragOverIndex !== null && draggedIndex !== null && draggedIndex < dragOverIndex && index === dragOverIndex
-                ? 'drag-over-right'
-                : ''
-            } ${
-              dragOverIndex !== null && draggedIndex !== null && draggedIndex > dragOverIndex && index === dragOverIndex
-                ? 'drag-over-left'
-                : ''
-            }`}
-            onClick={() => onSelectTab(tab.id)}
-            draggable
-            onDragStart={(e) => handleDragStart(e, index)}
-            onDragEnd={handleDragEnd}
-            onDragOver={(e) => handleDragOver(e, index)}
-            onDragLeave={handleDragLeave}
-            onDrop={(e) => handleDrop(e, index)}
-          >
-            <span className="tab-icon">{tab.isDashboard ? Icons.home : Icons.terminal}</span>
-            <span className="tab-title">{tab.title}</span>
-            {tab.claudeStatus !== 'idle' && (
-              <span
-                className="tab-status-indicator"
-                style={{ backgroundColor: getStatusColor(tab.claudeStatus) || undefined }}
-                title={`Claude: ${tab.claudeStatus}`}
-              />
-            )}
-            {!tab.isDashboard && (
-              <button
-                className="tab-close"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onRemoveTab(tab.id)
-                }}
-                aria-label="Close tab"
+        {tabs.filter(tab => !tab.isHiddenSplitPane).map((tab, index) => {
+          const tabIcon = tab.isDashboard ? Icons.home : Icons.terminal
+
+          return (
+            <div key={tab.id} style={{ display: 'contents' }}>
+              <div
+                className={`tab ${tab.id === activeTabId ? 'active' : ''} ${
+                  draggedIndex === index ? 'dragging' : ''
+                } ${dragOverIndex === index ? 'drag-over' : ''} ${
+                  dragOverIndex !== null && draggedIndex !== null && draggedIndex < dragOverIndex && index === dragOverIndex
+                    ? 'drag-over-right'
+                    : ''
+                } ${
+                  dragOverIndex !== null && draggedIndex !== null && draggedIndex > dragOverIndex && index === dragOverIndex
+                    ? 'drag-over-left'
+                    : ''
+                }`}
+                onClick={() => onSelectTab(tab.id)}
+                draggable
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragEnd={handleDragEnd}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, index)}
               >
-                {Icons.close}
-              </button>
-            )}
-          </div>
-        ))}
+                <span className="tab-icon">{tabIcon}</span>
+                <span className="tab-title">{tab.title}</span>
+                {tab.teamName && (
+                  <span className="tab-team-badge" title={`Team: ${tab.teamName}${tab.memberRole ? ` (${tab.memberRole})` : ''}`}>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+                    </svg>
+                    {tab.memberRole === 'lead' ? '👑' : ''}
+                  </span>
+                )}
+                {tab.claudeStatus !== 'idle' && (
+                  <span
+                    className="tab-status-indicator"
+                    style={{ backgroundColor: getStatusColor(tab.claudeStatus) || undefined }}
+                    title={`Claude: ${tab.claudeStatus}`}
+                  />
+                )}
+                {!tab.isDashboard && (
+                  <button
+                    className="tab-close"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setClosingTabId(tab.id)
+                    }}
+                    aria-label="Close tab"
+                  >
+                    {Icons.close}
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })}
         <button className="add-tab" onClick={(e) => { e.stopPropagation(); onAddTab(); }} aria-label="New tab">
           {Icons.plus}
         </button>
@@ -268,6 +283,19 @@ export default function TabBar({
           {Icons.settings}
         </button>
       </div>
+      <ConfirmDialog
+        open={closingTabId !== null}
+        title="터미널 닫기"
+        message="이 터미널을 닫으시겠습니까? 실행 중인 프로세스가 종료됩니다."
+        confirmLabel="닫기"
+        cancelLabel="취소"
+        variant="danger"
+        onConfirm={() => {
+          if (closingTabId) onRemoveTab(closingTabId)
+          setClosingTabId(null)
+        }}
+        onCancel={() => setClosingTabId(null)}
+      />
     </div>
   )
 }
