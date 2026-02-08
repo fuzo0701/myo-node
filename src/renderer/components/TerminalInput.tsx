@@ -118,10 +118,10 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
 
     // @ file/folder autocomplete
     const [fileEntries, setFileEntries] = useState<FileEntry[]>([])
-    const fileEntriesCwdRef = useRef<string>('')
+    const fileEntriesDirRef = useRef<string>('')
 
     // Detect @ context: find last @ in the input value
-    const atContext = useMemo<{ atIndex: number; query: string } | null>(() => {
+    const atContext = useMemo<{ atIndex: number; query: string; dirPath: string; fileName: string } | null>(() => {
       // Find last @ not preceded by alphanumeric (word boundary-ish)
       const lastAt = value.lastIndexOf('@')
       if (lastAt < 0) return null
@@ -130,23 +130,66 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
       const query = value.slice(lastAt + 1)
       // Stop if query contains space (user moved past the @ token)
       if (query.includes(' ')) return null
-      return { atIndex: lastAt, query }
+
+      // Parse directory path and filename from query
+      // Support both / and \ separators
+      const lastSep = Math.max(query.lastIndexOf('/'), query.lastIndexOf('\\'))
+      if (lastSep >= 0) {
+        const dirPath = query.slice(0, lastSep)
+        const fileName = query.slice(lastSep + 1)
+        return { atIndex: lastAt, query, dirPath, fileName }
+      }
+
+      return { atIndex: lastAt, query, dirPath: '', fileName: query }
     }, [value])
+
+    // Normalize path (handle .. and .)
+    const normalizePath = useCallback((basePath: string, relativePath: string): string => {
+      // Handle Windows drive letter (e.g., C:\)
+      const driveMatch = basePath.match(/^([A-Z]:)/i)
+      const drive = driveMatch ? driveMatch[1] : ''
+
+      // Split and filter empty parts
+      const baseWithoutDrive = drive ? basePath.slice(2) : basePath
+      const base = baseWithoutDrive.replace(/\\/g, '/').split('/').filter(Boolean)
+      const parts = relativePath.replace(/\\/g, '/').split('/').filter(Boolean)
+
+      for (const part of parts) {
+        if (part === '..') {
+          if (base.length > 0) {
+            base.pop() // Go up one level
+          }
+        } else if (part !== '.') {
+          base.push(part)
+        }
+      }
+
+      // Reconstruct path with Windows separator
+      const normalized = base.join('\\')
+      return drive ? `${drive}\\${normalized}` : normalized
+    }, [])
 
     // Fetch directory listing when @ is detected
     useEffect(() => {
       if (!atContext || !cwd || cwd === '~') return
-      // Only refetch if cwd changed
-      if (fileEntriesCwdRef.current === cwd && fileEntries.length > 0) return
-      fileEntriesCwdRef.current = cwd
-      window.fs?.readDirectory(cwd).then((entries: FileEntry[]) => {
+
+      // Build full directory path with normalization (handles ../ and ./)
+      const targetDir = atContext.dirPath
+        ? normalizePath(cwd, atContext.dirPath)
+        : cwd
+
+      // Only refetch if target directory changed
+      if (fileEntriesDirRef.current === targetDir && fileEntries.length > 0) return
+      fileEntriesDirRef.current = targetDir
+
+      window.fileSystem?.readDirectory(targetDir).then((entries: FileEntry[]) => {
         setFileEntries(entries.sort((a, b) => {
           if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
           return a.name.localeCompare(b.name)
         }))
       }).catch(() => setFileEntries([]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [atContext !== null, cwd])
+    }, [atContext?.dirPath, cwd, normalizePath])
 
     // Listen for external text insertion (e.g., from file explorer "Add to Claude")
     useEffect(() => {
@@ -194,18 +237,47 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
     const suggestions = useMemo<CommandSuggestion[]>(() => {
       // @ file mode: show file/folder entries
       if (atContext && fileEntries.length > 0) {
-        const q = atContext.query.toLowerCase()
-        return fileEntries
+        const q = atContext.fileName.toLowerCase()
+        const results: CommandSuggestion[] = []
+
+        // Add parent directory (..) as first option if query matches
+        if (!q || '..'.includes(q)) {
+          results.push({
+            id: 'file-parent',
+            label: '..',
+            command: '..',
+            source: 'slash' as const,
+            description: 'parent folder',
+            icon: '⬆️',
+          })
+        }
+
+        // Add current directory (.) if query matches
+        if (!q || '.'.includes(q)) {
+          results.push({
+            id: 'file-current',
+            label: '.',
+            command: '.',
+            source: 'slash' as const,
+            description: 'current folder',
+            icon: '📍',
+          })
+        }
+
+        // Add regular files and folders
+        const fileResults = fileEntries
           .filter(e => !q || e.name.toLowerCase().includes(q))
-          .slice(0, MAX_SUGGESTIONS)
           .map((entry, i) => ({
             id: `file-${i}`,
             label: entry.name,
-            command: entry.name, // will be handled specially in acceptSuggestion
+            command: entry.name,
             source: 'slash' as const,
             description: entry.type === 'directory' ? 'folder' : 'file',
             icon: entry.type === 'directory' ? '📁' : '📄',
           }))
+
+        results.push(...fileResults)
+        return results.slice(0, MAX_SUGGESTIONS)
       }
 
       // Option mode: show command options as suggestions
@@ -287,9 +359,28 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
       // @ file mode: replace @query with @filename
       if (atContext) {
         const before = value.slice(0, atContext.atIndex)
-        const fileName = command.includes(' ') ? `@"${command}" ` : `@${command} `
-        setValue(before + fileName)
-        setShowSuggestions(false)
+        // Build full path: dirPath + selected file/folder
+        const fullPath = atContext.dirPath
+          ? `${atContext.dirPath}/${command}`.replace(/\\/g, '/')
+          : command
+
+        // Check if this is a directory (including . and ..)
+        const isDirectory =
+          command === '..' ||
+          command === '.' ||
+          fileEntries.find(e => e.name === command)?.type === 'directory'
+
+        // For directories, add trailing slash and keep suggestions open
+        // For files, add space and close suggestions
+        const suffix = isDirectory ? '/' : ' '
+        const finalPath = fullPath.includes(' ') ? `@"${fullPath}"${suffix}` : `@${fullPath}${suffix}`
+
+        setValue(before + finalPath)
+
+        // Keep suggestions open for directories to allow continued navigation
+        if (!isDirectory) {
+          setShowSuggestions(false)
+        }
         textareaRef.current?.focus()
         return
       }
@@ -303,7 +394,7 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
         setShowSuggestions(false)
       }
       textareaRef.current?.focus()
-    }, [optionsMap, atContext, value])
+    }, [optionsMap, atContext, value, fileEntries])
 
     const handleChange = useCallback(
       (e: React.ChangeEvent<HTMLTextAreaElement>) => {
