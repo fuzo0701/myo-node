@@ -1,6 +1,6 @@
 {
   "name": "myonode",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "묘로드 (Myo-node) - Cross-platform terminal for Claude Code",
   "main": "dist/main/main.js",
   "scripts": {
