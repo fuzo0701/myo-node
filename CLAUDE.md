@@ -78,10 +78,22 @@ src/
 
 **Conversation History**: Auto-captures Claude Code sessions. Parser detects Claude output patterns and saves messages. History persisted to localStorage via Zustand persist middleware.
 
+**Keyboard Shortcuts**: Designed to work seamlessly with Claude Code's shortcuts. Input field has priority for all keystrokes.
+- **Claude Code shortcuts** (work in input): `Ctrl+C/D/L/R/T/G/O/U/K/Y/Z`, `Esc`, `Esc+Esc`
+- **App-level shortcuts** (work globally):
+  - Navigation: `Ctrl+Shift+P` (command palette), `Ctrl+P` (quick open), `Ctrl+F` (search)
+  - Tabs: `Ctrl+Shift+N` (new tab), `Ctrl+W` (close), `Ctrl+Tab` (switch), `Ctrl+1~9` (jump)
+  - Panels: `Ctrl+E` (explorer), `Ctrl+H` (history), `Ctrl+,` (settings), `Ctrl+\` (split)
+  - Sidebar: `Alt+1~5` (quick toggle)
+- **Auto-focus typing**: Type any regular character (a-z, 0-9, symbols) anywhere to automatically focus input and start typing. Arrow keys remain for OutputArea scrolling.
+
 **Claude Rendering**: Three render modes available:
 - `terminal`: Classic terminal output only
 - `hybrid`: Terminal + rendered Claude blocks (default)
 - `rendered`: Full markdown rendering for Claude output
+- `abstracted`: Block-based UI with output area + input textarea (xterm hidden but active for PTY)
+
+**현재 프로젝트는 `abstracted` 모드만 사용합니다.** 렌더 모드 관련 질문은 하지 마세요.
 
 Rendering features:
 - Markdown with syntax highlighting (react-markdown + react-syntax-highlighter)

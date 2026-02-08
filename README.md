@@ -79,20 +79,51 @@ npm run package:linux
 
 ## Keyboard Shortcuts
 
+**Note**: All Claude Code shortcuts (Ctrl+C/D/L/R/T/G/O/U/K/Y/Z, Esc) work in the input field and are passed through to Claude Code.
+
+### Navigation
 | Shortcut | Action |
 |----------|--------|
-| Ctrl+T | New tab |
+| Ctrl+Shift+P | Command palette |
+| Ctrl+P | Quick open (file search) |
+| Ctrl+F | Search in output |
+| Ctrl+Shift+F | Search in files |
+
+### Tabs
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+Shift+N | New tab |
 | Ctrl+W | Close tab |
 | Ctrl+Tab | Next tab |
 | Ctrl+Shift+Tab | Previous tab |
 | Ctrl+1~9 | Switch to tab |
-| Ctrl+B | Toggle file explorer |
+
+### Panels
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+E | Toggle file explorer |
 | Ctrl+H | Toggle history panel |
 | Ctrl+, | Toggle settings |
+| Ctrl+Shift+L | Toggle Claude settings |
+| Ctrl+Shift+T | Toggle task panel |
+| Ctrl+Shift+D | Toggle Agent Teams dashboard |
 | Ctrl+\ | Horizontal split |
 | Ctrl+Shift+\ | Vertical split |
-| Ctrl+Shift+P | Command palette |
+
+### Sidebar Quick Toggle
+| Shortcut | Action |
+|----------|--------|
+| Alt+1 | File explorer |
+| Alt+2 | History |
+| Alt+3 | Claude settings |
+| Alt+4 | Settings |
+| Alt+5 | Search panel |
+
+### Other
+| Shortcut | Action |
+|----------|--------|
 | Ctrl+Shift+C | Quick Claude command |
+| Escape | Close panels |
 
 ## License
 

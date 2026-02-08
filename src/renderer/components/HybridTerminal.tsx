@@ -177,12 +177,22 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
     // Refit xterm to fill the now-visible container
     setTimeout(() => {
       fitAddonRef.current?.fit()
-      // Focus xterm for Claude TUI interaction (allows Y/n permission responses)
-      const term = terminalRef.current
-      if (term) {
-        console.log('✅ Auto-focusing xterm for Claude interaction')
-        term.focus()
+
+      // In abstracted mode, don't auto-focus anything - let user choose by clicking
+      // - Click xterm: get arrows/Enter control
+      // - Type regular chars: auto-focus TerminalInput
+      if (renderModeRef.current === 'abstracted') {
+        console.log('ℹ️ xterm revealed (abstracted mode) - waiting for user interaction')
+        // Don't force focus - let user decide
+      } else {
+        // In other modes, focus xterm for Claude TUI interaction
+        const term = terminalRef.current
+        if (term) {
+          console.log('✅ Auto-focusing xterm for Claude interaction')
+          term.focus()
+        }
       }
+
       // Sync PTY size after fit
       if (ptyIdRef.current !== null && terminalRef.current) {
         const { cols, rows } = terminalRef.current
@@ -1041,6 +1051,36 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       cursorStyle: 'block',
     })
 
+    // In abstracted mode, prevent xterm from capturing regular character input
+    // Navigation keys (arrows, Enter, etc.) are allowed for Claude Code interaction
+    terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if (renderModeRef.current === 'abstracted') {
+        // Allow navigation and special keys for Claude Code interaction
+        const allowedKeys = [
+          'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+          'Home', 'End', 'PageUp', 'PageDown',
+          'Tab', 'Enter', 'Escape', 'Backspace', 'Delete',
+          'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'
+        ]
+
+        // Allow Ctrl/Alt/Meta key combinations
+        if (e.ctrlKey || e.altKey || e.metaKey) {
+          return true
+        }
+
+        if (allowedKeys.includes(e.key)) {
+          console.log('✅ xterm allowed key:', e.key)
+          return true
+        }
+
+        // Block regular character input - redirect to TerminalInput
+        console.log('🚫 xterm blocked character:', e.key, '→ TerminalInput')
+        return false
+      }
+      // In other modes, allow xterm to handle keys normally
+      return true
+    })
+
     const fitAddon = new FitAddon()
     const webLinksAddon = new WebLinksAddon((event, uri) => {
       // Open external URL with Ctrl+click
@@ -1063,6 +1103,55 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
       try {
         terminal.open(terminalContainerRef.current)
         fitAddon.fit()
+
+        // In abstracted mode, completely block xterm's textarea from receiving keyboard input
+        if (renderModeRef.current === 'abstracted') {
+          const xtermTextarea = terminalContainerRef.current.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement
+          if (xtermTextarea) {
+            xtermTextarea.setAttribute('tabindex', '-1')
+            xtermTextarea.style.pointerEvents = 'none'
+
+            // Block keyboard events for regular characters, but allow navigation keys for Claude Code
+            const blockKeyEvents = (e: KeyboardEvent) => {
+              if (renderModeRef.current === 'abstracted') {
+                // Allow navigation keys (arrows, home, end, etc.) and special keys for Claude interaction
+                const allowedKeys = [
+                  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+                  'Home', 'End', 'PageUp', 'PageDown',
+                  'Tab', 'Enter', 'Escape', 'Backspace', 'Delete'
+                ]
+
+                if (allowedKeys.includes(e.key)) {
+                  console.log('✅ Allowing xterm key:', e.key, '(Claude interaction)')
+                  return true // Allow these keys to pass through to xterm/Claude
+                }
+
+                // Block regular character input - redirect to TerminalInput
+                console.log('🚫 Blocked xterm key:', e.key, 'revealed:', xtermRevealedRef.current, '→ redirecting to TerminalInput')
+                e.preventDefault()
+                e.stopPropagation()
+                e.stopImmediatePropagation()
+
+                // Focus TerminalInput immediately
+                const input = terminalInputRef.current
+                if (input && document.activeElement !== input) {
+                  console.log('✨ Forcing focus to TerminalInput')
+                  input.focus()
+                }
+                return false
+              }
+            }
+
+            xtermTextarea.addEventListener('keydown', blockKeyEvents, true)
+            xtermTextarea.addEventListener('keypress', blockKeyEvents, true)
+            xtermTextarea.addEventListener('keyup', blockKeyEvents, true)
+
+            // Note: We don't redirect focus automatically anymore
+            // User can click xterm to use arrows/Enter, or type regular chars to focus TerminalInput
+
+            console.log('✅ xterm textarea: regular chars blocked, navigation keys allowed')
+          }
+        }
       } catch (e) {
         console.error('Failed to open terminal:', e)
         return
@@ -1431,12 +1520,14 @@ export default function HybridTerminal({ tabId, isActive = true }: HybridTermina
           ref={terminalContainerRef}
           className="xterm-abstracted"
           onClick={(e) => {
-            console.log('🖱️ Terminal clicked, xtermRevealed:', xtermRevealed)
+            console.log('🖱️ Terminal clicked, xtermRevealed:', xtermRevealed, 'renderMode:', renderMode)
             if (xtermRevealed) {
               e.stopPropagation() // Prevent parent onClick from focusing input
+
+              // User clicked xterm - give it focus for arrow keys, Enter, etc.
               const term = terminalRef.current
               if (term) {
-                console.log('✅ Focusing terminal (xterm)')
+                console.log('✅ Focusing xterm (user clicked, arrows/Enter enabled)')
                 term.focus()
               } else {
                 console.warn('⚠️ Terminal ref is null!')

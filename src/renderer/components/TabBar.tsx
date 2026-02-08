@@ -235,7 +235,7 @@ export default function TabBar({
         <button
           className={`action-btn icon-btn ${explorerOpen ? 'active' : ''}`}
           onClick={onExplorerToggle}
-          title="File Explorer (Ctrl+B)"
+          title="File Explorer (Ctrl+E)"
           disabled={isDashboardActive}
         >
           {Icons.explorer}

@@ -19,7 +19,9 @@ export type WindowAPI = {
 }
 
 export type FileSystemAPI = {
-  readDirectory: (path: string) => Promise<Array<{ name: string; type: 'file' | 'directory' }>>
+  readDirectory: (path: string, withStats?: boolean) => Promise<Array<{ name: string; type: 'file' | 'directory'; size?: number; mtime?: number }>>
+  listFilesRecursive: (path: string, maxFiles?: number) => Promise<string[]>
+  searchInFiles: (dirPath: string, query: string, maxResults?: number) => Promise<Array<{ file: string; line: number; text: string }>>
   getCurrentDirectory: () => Promise<string>
   readFile: (path: string) => Promise<string>
   readFileBase64: (path: string) => Promise<string | null>
@@ -79,7 +81,9 @@ contextBridge.exposeInMainWorld('windowControls', {
 } as WindowAPI)
 
 contextBridge.exposeInMainWorld('fileSystem', {
-  readDirectory: (path: string) => ipcRenderer.invoke('fs:readDirectory', path),
+  readDirectory: (path: string, withStats?: boolean) => ipcRenderer.invoke('fs:readDirectory', path, withStats),
+  listFilesRecursive: (path: string, maxFiles?: number) => ipcRenderer.invoke('fs:listFilesRecursive', path, maxFiles),
+  searchInFiles: (dirPath: string, query: string, maxResults?: number) => ipcRenderer.invoke('fs:searchInFiles', dirPath, query, maxResults),
   getCurrentDirectory: () => ipcRenderer.invoke('fs:getCurrentDirectory'),
   readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path),
   readFileBase64: (path: string) => ipcRenderer.invoke('fs:readFileBase64', path),
@@ -168,6 +172,29 @@ export type MarketplacePlugin = {
   lspServers?: Record<string, unknown>
 }
 
+export type ManifestSkill = {
+  version: string
+  description: string
+  entry: string
+  files: string[]
+  triggers?: string[]
+  category?: string
+}
+
+export type ManifestCommand = {
+  description: string
+  file: string
+  category?: string
+}
+
+export type ManifestData = {
+  version: string
+  description: string
+  updated: string
+  skills: Record<string, ManifestSkill>
+  commands?: Record<string, ManifestCommand>
+}
+
 export type ClaudeAPI = {
   listSkills: () => Promise<Array<{ name: string; description: string }>>
   readSkill: (name: string) => Promise<string | null>
@@ -188,6 +215,31 @@ export type ClaudeAPI = {
   readKeybindings: () => Promise<Record<string, unknown> | null>
   fetchMarketplace: () => Promise<MarketplacePlugin[]>
   getInstalledPlugins: () => Promise<string[]>
+  readAgentTeamsConfig: () => Promise<{ enabled: boolean; teammateMode: string }>
+  writeAgentTeamsConfig: (config: { enabled: boolean; teammateMode: string }) => Promise<boolean>
+  readModelConfig: () => Promise<{ model: string; maxOutputTokens: string; maxThinkingTokens: string; effortLevel: string }>
+  writeModelConfig: (config: { model: string; maxOutputTokens: string; maxThinkingTokens: string; effortLevel: string }) => Promise<boolean>
+  getAuthStatus: () => Promise<{ loggedIn: boolean; subscriptionType: string; expiresAt: number }>
+  readInputHistory: (limit?: number) => Promise<Array<{ display: string; timestamp: number; project: string; sessionId: string }>>
+  readManifest: () => Promise<ManifestData | null>
+  readSkillSources: () => Promise<SkillSource[]>
+  writeSkillSources: (sources: SkillSource[]) => Promise<boolean>
+  fetchRemoteSkills: () => Promise<Record<string, RemoteSkillInfo>>
+  installRemoteSkill: (name: string, forceReinstall?: boolean) => Promise<{ installed: string[]; skipped: string[]; errors: string[] }>
+}
+
+export type SkillSource = {
+  name: string
+  url: string
+  project: string
+  token: string
+  branch: string
+}
+
+export type RemoteSkillInfo = {
+  description: string
+  version: string
+  dependencies: string[]
 }
 
 export type OAuthUsageResponse = {
@@ -199,12 +251,40 @@ export type OAuthUsageResponse = {
 
 export type GitAPI = {
   getRepoRoot: (dirPath: string) => Promise<string | null>
+  getBranch: (dirPath: string) => Promise<string | null>
   getStatus: (repoRoot: string) => Promise<Record<string, { index: string; workTree: string }> | null>
+  getIgnored: (repoRoot: string) => Promise<string[]>
 }
+
+export type AgentTeamsAPI = {
+  listTeams: () => Promise<string[]>
+  getTeamInfo: (teamName: string) => Promise<{
+    teamName: string
+    members: Array<{ name: string; agentId: string; agentType: string }>
+    tasks: Array<{ id: string; subject: string; status: string; assignee?: string; blockedBy?: string[] }>
+  } | null>
+  watchTeams: () => Promise<boolean>
+  unwatchTeams: () => Promise<boolean>
+  onTeamsChanged: (callback: (teamName: string) => void) => () => void
+}
+
+contextBridge.exposeInMainWorld('agentTeams', {
+  listTeams: () => ipcRenderer.invoke('agentTeams:list'),
+  getTeamInfo: (teamName: string) => ipcRenderer.invoke('agentTeams:getInfo', teamName),
+  watchTeams: () => ipcRenderer.invoke('agentTeams:watch'),
+  unwatchTeams: () => ipcRenderer.invoke('agentTeams:unwatch'),
+  onTeamsChanged: (callback: (teamName: string) => void) => {
+    const handler = (_: unknown, teamName: string) => callback(teamName)
+    ipcRenderer.on('agentTeams:changed', handler)
+    return () => ipcRenderer.removeListener('agentTeams:changed', handler)
+  },
+} as AgentTeamsAPI)
 
 contextBridge.exposeInMainWorld('git', {
   getRepoRoot: (dirPath: string) => ipcRenderer.invoke('git:getRepoRoot', dirPath),
+  getBranch: (dirPath: string) => ipcRenderer.invoke('git:getBranch', dirPath),
   getStatus: (repoRoot: string) => ipcRenderer.invoke('git:getStatus', repoRoot),
+  getIgnored: (repoRoot: string) => ipcRenderer.invoke('git:getIgnored', repoRoot),
 } as GitAPI)
 
 contextBridge.exposeInMainWorld('claude', {
@@ -227,4 +307,17 @@ contextBridge.exposeInMainWorld('claude', {
   readKeybindings: () => ipcRenderer.invoke('claude:readKeybindings'),
   fetchMarketplace: () => ipcRenderer.invoke('claude:fetchMarketplace'),
   getInstalledPlugins: () => ipcRenderer.invoke('claude:getInstalledPlugins'),
+  readAgentTeamsConfig: () => ipcRenderer.invoke('claude:readAgentTeamsConfig'),
+  writeAgentTeamsConfig: (config: { enabled: boolean; teammateMode: string }) =>
+    ipcRenderer.invoke('claude:writeAgentTeamsConfig', config),
+  readModelConfig: () => ipcRenderer.invoke('claude:readModelConfig'),
+  writeModelConfig: (config: { model: string; maxOutputTokens: string; maxThinkingTokens: string; effortLevel: string }) =>
+    ipcRenderer.invoke('claude:writeModelConfig', config),
+  getAuthStatus: () => ipcRenderer.invoke('claude:getAuthStatus'),
+  readInputHistory: (limit?: number) => ipcRenderer.invoke('claude:readInputHistory', limit),
+  readManifest: () => ipcRenderer.invoke('claude:readManifest'),
+  readSkillSources: () => ipcRenderer.invoke('claude:readSkillSources'),
+  writeSkillSources: (sources: unknown[]) => ipcRenderer.invoke('claude:writeSkillSources', sources),
+  fetchRemoteSkills: () => ipcRenderer.invoke('claude:fetchRemoteSkills'),
+  installRemoteSkill: (name: string, forceReinstall?: boolean) => ipcRenderer.invoke('claude:installRemoteSkill', name, forceReinstall),
 } as ClaudeAPI)

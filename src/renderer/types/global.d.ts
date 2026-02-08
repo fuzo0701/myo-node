@@ -16,7 +16,9 @@ declare global {
       close: () => void
     }
     fileSystem: {
-      readDirectory: (path: string) => Promise<Array<{ name: string; type: 'file' | 'directory' }>>
+      readDirectory: (path: string, withStats?: boolean) => Promise<Array<{ name: string; type: 'file' | 'directory'; size?: number; mtime?: number }>>
+      listFilesRecursive: (path: string, maxFiles?: number) => Promise<string[]>
+      searchInFiles: (dirPath: string, query: string, maxResults?: number) => Promise<Array<{ file: string; line: number; text: string }>>
       getCurrentDirectory: () => Promise<string>
       readFile: (path: string) => Promise<string | null>
       readFileBase64: (path: string) => Promise<string | null>
@@ -49,10 +51,13 @@ declare global {
     }
     git: {
       getRepoRoot: (dirPath: string) => Promise<string | null>
+      getBranch: (dirPath: string) => Promise<string | null>
       getStatus: (repoRoot: string) => Promise<Record<string, { index: string; workTree: string }> | null>
+      getIgnored: (repoRoot: string) => Promise<string[]>
     }
+    agentTeams: AgentTeamsAPI
     claude: {
-      listSkills: () => Promise<Array<{ name: string; description: string }>>
+      listSkills: () => Promise<Array<{ name: string; description: string; commands: string[] }>>
       readSkill: (name: string) => Promise<string | null>
       writeSkill: (name: string, content: string) => Promise<boolean>
       deleteSkill: (name: string) => Promise<boolean>
@@ -71,7 +76,102 @@ declare global {
       readKeybindings: () => Promise<Record<string, unknown> | null>
       fetchMarketplace: () => Promise<MarketplacePlugin[]>
       getInstalledPlugins: () => Promise<string[]>
+      readAgentTeamsConfig: () => Promise<{ enabled: boolean; teammateMode: string }>
+      writeAgentTeamsConfig: (config: { enabled: boolean; teammateMode: string }) => Promise<boolean>
+      readModelConfig: () => Promise<{ model: string; maxOutputTokens: string; maxThinkingTokens: string; effortLevel: string }>
+      writeModelConfig: (config: { model: string; maxOutputTokens: string; maxThinkingTokens: string; effortLevel: string }) => Promise<boolean>
+      getAuthStatus: () => Promise<{ loggedIn: boolean; subscriptionType: string; expiresAt: number }>
+      readInputHistory: (limit?: number) => Promise<InputHistoryEntry[]>
+      readManifest: () => Promise<ManifestData | null>
+      readSkillSources: () => Promise<SkillSource[]>
+      writeSkillSources: (sources: SkillSource[]) => Promise<boolean>
+      fetchRemoteSkills: () => Promise<Record<string, RemoteSkillInfo>>
+      installRemoteSkill: (name: string, forceReinstall?: boolean) => Promise<{ installed: string[]; skipped: string[]; errors: string[] }>
     }
+  }
+
+  interface AgentTeamMember {
+    name: string
+    agentId: string
+    agentType: string  // "lead" | "teammate"
+    model?: string
+    color?: string
+  }
+
+  interface AgentTeamMessage {
+    from: string
+    text: string
+    summary?: string
+    timestamp: number
+    color?: string
+    read: boolean
+  }
+
+  interface AgentTeamTask {
+    id: string
+    subject: string
+    status: 'pending' | 'in_progress' | 'completed'
+    assignee?: string
+    blockedBy?: string[]
+  }
+
+  interface AgentTeamInfo {
+    teamName: string
+    members: AgentTeamMember[]
+    tasks: AgentTeamTask[]
+    messages: AgentTeamMessage[]
+  }
+
+  interface AgentTeamsAPI {
+    listTeams: () => Promise<string[]>
+    getTeamInfo: (teamName: string) => Promise<AgentTeamInfo | null>
+    watchTeams: () => Promise<boolean>
+    unwatchTeams: () => Promise<boolean>
+    onTeamsChanged: (callback: (teamName: string) => void) => () => void
+  }
+
+  interface SkillSource {
+    name: string
+    url: string
+    project: string
+    token: string
+    branch: string
+  }
+
+  interface RemoteSkillInfo {
+    description: string
+    version: string
+    dependencies: string[]
+  }
+
+  interface InputHistoryEntry {
+    display: string
+    timestamp: number
+    project: string
+    sessionId: string
+  }
+
+  interface ManifestSkill {
+    version: string
+    description: string
+    entry: string
+    files: string[]
+    triggers?: string[]
+    category?: string
+  }
+
+  interface ManifestCommand {
+    description: string
+    file: string
+    category?: string
+  }
+
+  interface ManifestData {
+    version: string
+    description: string
+    updated: string
+    skills: Record<string, ManifestSkill>
+    commands?: Record<string, ManifestCommand>
   }
 
   interface MarketplacePlugin {

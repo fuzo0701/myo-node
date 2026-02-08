@@ -7,13 +7,14 @@ interface ClaudeSettingsPanelProps {
   onSendCommand?: (command: string) => void
 }
 
-type PanelTab = 'skills' | 'mcp' | 'plugins'
+type PanelTab = 'skills' | 'mcp' | 'plugins' | 'teams' | 'model'
 type Mode = 'list' | 'edit' | 'create'
 type Scope = 'global' | 'project'
 
 interface SkillItem {
   name: string
   description: string
+  commands: string[]
 }
 
 interface McpServer {
@@ -74,6 +75,12 @@ const Icons = {
       <path d="M16.24 7.76l2.83-2.83" />
     </svg>
   ),
+  copy: (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  ),
   download: (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
@@ -94,9 +101,72 @@ const Icons = {
       <line x1="21" y1="21" x2="16.65" y2="16.65" />
     </svg>
   ),
+  teams: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  ),
+  model: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+    </svg>
+  ),
 }
 
 const ALL_CATEGORIES = ['all', 'development', 'productivity', 'security', 'learning', 'testing', 'database', 'design', 'deployment', 'monitoring'] as const
+
+interface TeamTemplate {
+  id: string
+  name: string
+  icon: string
+  description: string
+  members: number
+  roles: string[]
+  prompt: string  // instruction text sent to Claude to configure the team
+}
+
+const TEAM_TEMPLATES: TeamTemplate[] = [
+  {
+    id: 'security-audit',
+    name: 'Security Audit',
+    icon: '🔒',
+    description: 'Vulnerability scanning, dependency audit, and OWASP review',
+    members: 3,
+    roles: ['Lead Auditor', 'Dependency Scanner', 'OWASP Reviewer'],
+    prompt: 'Create a team of 3 agents for security audit: 1) Lead Auditor who coordinates and reviews findings, 2) Dependency Scanner who checks for vulnerable packages and outdated dependencies, 3) OWASP Reviewer who checks for common web vulnerabilities. Start scanning this project.',
+  },
+  {
+    id: 'fullstack-dev',
+    name: 'Full-Stack Dev',
+    icon: '🚀',
+    description: 'Frontend, backend, and testing agents working in parallel',
+    members: 3,
+    roles: ['Frontend Dev', 'Backend Dev', 'Test Engineer'],
+    prompt: 'Create a team of 3 agents for full-stack development: 1) Frontend Dev for UI components and styling, 2) Backend Dev for API endpoints and data logic, 3) Test Engineer who writes tests for both frontend and backend. Coordinate their work on the current task.',
+  },
+  {
+    id: 'code-review',
+    name: 'Code Review',
+    icon: '👀',
+    description: 'Architecture review, bug detection, and performance analysis',
+    members: 3,
+    roles: ['Architecture Reviewer', 'Bug Detective', 'Performance Analyst'],
+    prompt: 'Create a team of 3 agents for code review: 1) Architecture Reviewer who examines code structure and design patterns, 2) Bug Detective who identifies potential bugs, edge cases, and error handling issues, 3) Performance Analyst who checks for bottlenecks and optimization opportunities. Review the current codebase.',
+  },
+  {
+    id: 'refactor',
+    name: 'Refactoring',
+    icon: '🔧',
+    description: 'Code cleanup, type safety, and documentation',
+    members: 2,
+    roles: ['Refactorer', 'Type Safety & Docs'],
+    prompt: 'Create a team of 2 agents for refactoring: 1) Refactorer who improves code structure, extracts reusable functions, and removes duplication, 2) Type Safety & Docs agent who adds proper TypeScript types and essential documentation. Work on the current project.',
+  },
+]
 
 export default function ClaudeSettingsPanel({ isOpen, onClose, projectPath, onSendCommand }: ClaudeSettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>('skills')
@@ -126,6 +196,29 @@ export default function ClaudeSettingsPanel({ isOpen, onClose, projectPath, onSe
   const [pluginSearch, setPluginSearch] = useState('')
   const [pluginCategory, setPluginCategory] = useState<string>('all')
   const [installedPlugins, setInstalledPlugins] = useState<Set<string>>(new Set())
+
+  // Teams state
+  const [teamsEnabled, setTeamsEnabled] = useState(false)
+  const [teammateMode, setTeammateMode] = useState<string>('auto')
+  const [teamsLoading, setTeamsLoading] = useState(false)
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
+
+  // Skill Store state
+  const [skillView, setSkillView] = useState<'local' | 'store'>('local')
+  const [remoteSkills, setRemoteSkills] = useState<Record<string, RemoteSkillInfo>>({})
+  const [storeLoading, setStoreLoading] = useState(false)
+  const [installing, setInstalling] = useState<string | null>(null)
+  const [installResult, setInstallResult] = useState<{ installed: string[]; skipped: string[]; errors: string[] } | null>(null)
+  const [skillSources, setSkillSources] = useState<SkillSource[]>([])
+  const [editingSource, setEditingSource] = useState(false)
+  const [sourceForm, setSourceForm] = useState<SkillSource>({ name: 'My Skills', url: '', project: '', token: '', branch: 'main' })
+
+  // Model config state
+  const [modelName, setModelName] = useState('')
+  const [maxOutputTokens, setMaxOutputTokens] = useState('')
+  const [maxThinkingTokens, setMaxThinkingTokens] = useState('')
+  const [effortLevel, setEffortLevel] = useState('')
+  const [modelLoading, setModelLoading] = useState(false)
 
   // Reset mode when switching tabs
   const handleTabChange = (tab: PanelTab) => {
@@ -165,6 +258,18 @@ export default function ClaudeSettingsPanel({ isOpen, onClose, projectPath, onSe
   const handleDeleteSkill = async (name: string) => {
     if (!confirm(`Delete skill "${name}"?`)) return
     await window.claude?.deleteSkill(name)
+    await loadSkills()
+  }
+
+  const handleCloneSkill = async (name: string) => {
+    const content = await window.claude?.readSkill(name)
+    if (content == null) return
+    let cloneName = `${name}-copy`
+    let i = 2
+    while (skills.some(s => s.name === cloneName)) {
+      cloneName = `${name}-copy-${i++}`
+    }
+    await window.claude?.writeSkill(cloneName, content)
     await loadSkills()
   }
 
@@ -270,13 +375,163 @@ export default function ClaudeSettingsPanel({ isOpen, onClose, projectPath, onSe
     onSendCommand?.(cmd)
   }
 
+  // === Teams Logic ===
+  const loadTeamsConfig = useCallback(async () => {
+    setTeamsLoading(true)
+    try {
+      const config = await window.claude?.readAgentTeamsConfig()
+      if (config) {
+        setTeamsEnabled(config.enabled)
+        setTeammateMode(config.teammateMode || 'auto')
+      }
+    } catch { /* ignore */ }
+    setTeamsLoading(false)
+  }, [])
+
+  const saveTeamsConfig = useCallback(async (enabled: boolean, mode: string) => {
+    await window.claude?.writeAgentTeamsConfig({ enabled, teammateMode: mode })
+  }, [])
+
+  const handleTeamsToggle = async (enabled: boolean) => {
+    setTeamsEnabled(enabled)
+    await saveTeamsConfig(enabled, teammateMode)
+  }
+
+  const handleTeammateModeChange = async (mode: string) => {
+    setTeammateMode(mode)
+    await saveTeamsConfig(teamsEnabled, mode)
+  }
+
+  // === Model Config Logic ===
+  const loadModelConfig = useCallback(async () => {
+    setModelLoading(true)
+    try {
+      const config = await window.claude?.readModelConfig()
+      if (config) {
+        setModelName(config.model || '')
+        setMaxOutputTokens(config.maxOutputTokens || '')
+        setMaxThinkingTokens(config.maxThinkingTokens || '')
+        setEffortLevel(config.effortLevel || '')
+      }
+    } catch { /* ignore */ }
+    setModelLoading(false)
+  }, [])
+
+  const saveModelConfig = useCallback(async (
+    model: string, outputTokens: string, thinkingTokens: string, effort: string
+  ) => {
+    await window.claude?.writeModelConfig({
+      model, maxOutputTokens: outputTokens, maxThinkingTokens: thinkingTokens, effortLevel: effort,
+    })
+  }, [])
+
+  const handleModelChange = async (model: string) => {
+    setModelName(model)
+    await saveModelConfig(model, maxOutputTokens, maxThinkingTokens, effortLevel)
+  }
+
+  const contextSuffixRegex = /\[\d+m\]$/
+  const getBaseModel = (m: string) => m.replace(contextSuffixRegex, '')
+  const getContextSuffix = (m: string) => { const match = m.match(contextSuffixRegex); return match ? match[0] : '' }
+
+  const handleContextChange = async (suffix: string) => {
+    const base = getBaseModel(modelName) || 'opus'
+    const newModel = suffix ? `${base}${suffix}` : base
+    setModelName(newModel)
+    await saveModelConfig(newModel, maxOutputTokens, maxThinkingTokens, effortLevel)
+  }
+
+  const handleOutputTokensChange = async (val: string) => {
+    setMaxOutputTokens(val)
+    await saveModelConfig(modelName, val, maxThinkingTokens, effortLevel)
+  }
+
+  const handleThinkingTokensChange = async (val: string) => {
+    setMaxThinkingTokens(val)
+    await saveModelConfig(modelName, maxOutputTokens, val, effortLevel)
+  }
+
+  const handleEffortChange = async (val: string) => {
+    setEffortLevel(val)
+    await saveModelConfig(modelName, maxOutputTokens, maxThinkingTokens, val)
+  }
+
+  // === Skill Store Logic ===
+  const loadSkillSources = useCallback(async () => {
+    const sources = await window.claude?.readSkillSources() || []
+    setSkillSources(sources)
+    if (sources.length > 0) {
+      setSourceForm(sources[0])
+    }
+  }, [])
+
+  const loadRemoteSkills = useCallback(async () => {
+    setStoreLoading(true)
+    setInstallResult(null)
+    const skills = await window.claude?.fetchRemoteSkills() || {}
+    setRemoteSkills(skills)
+    setStoreLoading(false)
+  }, [])
+
+  const handleSaveSource = async () => {
+    if (!sourceForm.url.trim() || !sourceForm.project.trim() || !sourceForm.token.trim()) return
+    const sources = [sourceForm]
+    await window.claude?.writeSkillSources(sources)
+    setSkillSources(sources)
+    setEditingSource(false)
+    // Reload remote skills with new source
+    setStoreLoading(true)
+    const skills = await window.claude?.fetchRemoteSkills() || {}
+    setRemoteSkills(skills)
+    setStoreLoading(false)
+  }
+
+  const handleInstallSkill = async (name: string) => {
+    setInstalling(name)
+    setInstallResult(null)
+    const result = await window.claude?.installRemoteSkill(name) || { installed: [], skipped: [], errors: [] }
+    setInstallResult(result)
+    setInstalling(null)
+    // Refresh local skills list
+    await loadSkills()
+  }
+
+  const isSkillInstalled = (name: string) => {
+    return skills.some(s => s.name === name)
+  }
+
+  const getDepsCount = (name: string): number => {
+    const skill = remoteSkills[name]
+    if (!skill?.dependencies?.length) return 0
+    let count = 0
+    const visited = new Set<string>()
+    const countDeps = (n: string) => {
+      if (visited.has(n)) return
+      visited.add(n)
+      const s = remoteSkills[n]
+      if (!s) return
+      for (const d of s.dependencies || []) {
+        if (!visited.has(d)) {
+          count++
+          countDeps(d)
+        }
+      }
+    }
+    countDeps(name)
+    return count
+  }
+
   // Load data when panel opens or tab/scope changes
   useEffect(() => {
     if (isOpen && activeTab === 'skills') {
       loadSkills()
       setMode('list')
+      if (skillView === 'store') {
+        loadSkillSources()
+        loadRemoteSkills()
+      }
     }
-  }, [isOpen, activeTab, loadSkills])
+  }, [isOpen, activeTab, loadSkills, skillView, loadSkillSources, loadRemoteSkills])
 
   useEffect(() => {
     if (isOpen && activeTab === 'mcp') {
@@ -290,6 +545,18 @@ export default function ClaudeSettingsPanel({ isOpen, onClose, projectPath, onSe
       loadPlugins()
     }
   }, [isOpen, activeTab, plugins.length, pluginsLoading, loadPlugins])
+
+  useEffect(() => {
+    if (isOpen && activeTab === 'teams') {
+      loadTeamsConfig()
+    }
+  }, [isOpen, activeTab, loadTeamsConfig])
+
+  useEffect(() => {
+    if (isOpen && activeTab === 'model') {
+      loadModelConfig()
+    }
+  }, [isOpen, activeTab, loadModelConfig])
 
   if (!isOpen) return null
 
@@ -317,12 +584,12 @@ export default function ClaudeSettingsPanel({ isOpen, onClose, projectPath, onSe
             <>
               <button
                 className="side-panel-icon-btn"
-                onClick={activeTab === 'skills' ? loadSkills : activeTab === 'mcp' ? loadServers : loadPlugins}
+                onClick={activeTab === 'skills' ? loadSkills : activeTab === 'mcp' ? loadServers : activeTab === 'plugins' ? loadPlugins : activeTab === 'teams' ? loadTeamsConfig : loadModelConfig}
                 title="Refresh"
               >
                 {Icons.refresh}
               </button>
-              {activeTab !== 'plugins' && (
+              {activeTab !== 'plugins' && activeTab !== 'teams' && activeTab !== 'model' && (
                 <button
                   className="side-panel-icon-btn"
                   onClick={activeTab === 'skills' ? handleCreateSkill : handleCreateServer}
@@ -358,6 +625,36 @@ export default function ClaudeSettingsPanel({ isOpen, onClose, projectPath, onSe
           >
             {Icons.plugin} Plugins
           </button>
+          <button
+            className={`scope-tab ${activeTab === 'teams' ? 'active' : ''}`}
+            onClick={() => handleTabChange('teams')}
+          >
+            {Icons.teams} Teams
+          </button>
+          <button
+            className={`scope-tab ${activeTab === 'model' ? 'active' : ''}`}
+            onClick={() => handleTabChange('model')}
+          >
+            {Icons.model} Model
+          </button>
+        </div>
+      )}
+
+      {/* Skills view toggle (Local / Store) */}
+      {mode === 'list' && activeTab === 'skills' && (
+        <div className="side-panel-sub-toggle">
+          <button
+            className={`sub-toggle-btn ${skillView === 'local' ? 'active' : ''}`}
+            onClick={() => setSkillView('local')}
+          >
+            Local
+          </button>
+          <button
+            className={`sub-toggle-btn ${skillView === 'store' ? 'active' : ''}`}
+            onClick={() => { setSkillView('store'); loadSkillSources(); loadRemoteSkills() }}
+          >
+            Store
+          </button>
         </div>
       )}
 
@@ -382,10 +679,16 @@ export default function ClaudeSettingsPanel({ isOpen, onClose, projectPath, onSe
       {/* Info bar */}
       {mode === 'list' && (
         <div className="side-panel-info-bar">
-          {activeTab === 'skills' && !skillsLoading && (
+          {activeTab === 'skills' && skillView === 'local' && !skillsLoading && (
             <>
               <span className="side-panel-count">{skills.length} skill{skills.length !== 1 ? 's' : ''}</span>
               <span className="side-panel-path">~/.claude/skills/</span>
+            </>
+          )}
+          {activeTab === 'skills' && skillView === 'store' && !storeLoading && (
+            <>
+              <span className="side-panel-count">{Object.keys(remoteSkills).length} remote skill{Object.keys(remoteSkills).length !== 1 ? 's' : ''}</span>
+              <span className="side-panel-path">{skillSources[0]?.project || 'No source configured'}</span>
             </>
           )}
           {activeTab === 'mcp' && !mcpLoading && (
@@ -400,13 +703,25 @@ export default function ClaudeSettingsPanel({ isOpen, onClose, projectPath, onSe
               <span className="side-panel-path">Marketplace</span>
             </>
           )}
+          {activeTab === 'teams' && !teamsLoading && (
+            <>
+              <span className="side-panel-count">{teamsEnabled ? 'Enabled' : 'Disabled'}</span>
+              <span className="side-panel-path">~/.claude/settings.json</span>
+            </>
+          )}
+          {activeTab === 'model' && !modelLoading && (
+            <>
+              <span className="side-panel-count">{modelName || 'default'}</span>
+              <span className="side-panel-path">~/.claude/settings.json</span>
+            </>
+          )}
         </div>
       )}
 
       {/* Content */}
       <div className="side-panel-content">
-        {/* === Skills List === */}
-        {activeTab === 'skills' && mode === 'list' && (
+        {/* === Skills List (Local) === */}
+        {activeTab === 'skills' && mode === 'list' && skillView === 'local' && (
           <>
             {skillsLoading ? (
               <div className="side-panel-loading">
@@ -432,8 +747,22 @@ export default function ClaudeSettingsPanel({ isOpen, onClose, projectPath, onSe
                       {skill.description && (
                         <span className="item-desc">{skill.description.replace(/^#\s*/, '')}</span>
                       )}
+                      {skill.commands && skill.commands.length > 0 && (
+                        <div className="skill-commands">
+                          {skill.commands.map((cmd, i) => (
+                            <span key={i} className="skill-command-badge">{cmd}</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="item-actions">
+                      <button
+                        className="item-action-btn"
+                        onClick={(e) => { e.stopPropagation(); handleCloneSkill(skill.name) }}
+                        title="Clone"
+                      >
+                        {Icons.copy}
+                      </button>
                       <button
                         className="item-action-btn delete"
                         onClick={(e) => { e.stopPropagation(); handleDeleteSkill(skill.name) }}
@@ -445,6 +774,178 @@ export default function ClaudeSettingsPanel({ isOpen, onClose, projectPath, onSe
                   </div>
                 ))}
               </div>
+            )}
+          </>
+        )}
+
+        {/* === Skills Store === */}
+        {activeTab === 'skills' && mode === 'list' && skillView === 'store' && (
+          <>
+            {/* Source config */}
+            {editingSource ? (
+              <div className="skill-store-source-editor">
+                <div className="editor-field">
+                  <label>Name</label>
+                  <input
+                    type="text"
+                    value={sourceForm.name}
+                    onChange={(e) => setSourceForm({ ...sourceForm, name: e.target.value })}
+                    placeholder="My Skills"
+                    className="editor-input"
+                  />
+                </div>
+                <div className="editor-field">
+                  <label>GitLab URL</label>
+                  <input
+                    type="text"
+                    value={sourceForm.url}
+                    onChange={(e) => setSourceForm({ ...sourceForm, url: e.target.value })}
+                    placeholder="https://gitlab.example.com"
+                    className="editor-input"
+                  />
+                </div>
+                <div className="editor-field">
+                  <label>Project</label>
+                  <input
+                    type="text"
+                    value={sourceForm.project}
+                    onChange={(e) => setSourceForm({ ...sourceForm, project: e.target.value })}
+                    placeholder="username/repo"
+                    className="editor-input"
+                  />
+                </div>
+                <div className="editor-field">
+                  <label>Access Token</label>
+                  <input
+                    type="password"
+                    value={sourceForm.token}
+                    onChange={(e) => setSourceForm({ ...sourceForm, token: e.target.value })}
+                    placeholder="glpat-..."
+                    className="editor-input"
+                  />
+                </div>
+                <div className="editor-field">
+                  <label>Branch</label>
+                  <input
+                    type="text"
+                    value={sourceForm.branch}
+                    onChange={(e) => setSourceForm({ ...sourceForm, branch: e.target.value })}
+                    placeholder="main"
+                    className="editor-input"
+                  />
+                </div>
+                <div className="editor-actions">
+                  <button className="editor-btn cancel" onClick={() => setEditingSource(false)}>Cancel</button>
+                  <button
+                    className="editor-btn save"
+                    onClick={handleSaveSource}
+                    disabled={!sourceForm.url.trim() || !sourceForm.project.trim() || !sourceForm.token.trim()}
+                  >
+                    Save & Load
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Source info bar */}
+                <div className="skill-store-source-bar" onClick={() => setEditingSource(true)}>
+                  <span className="store-source-label">
+                    {skillSources.length > 0 ? skillSources[0].name : 'No source configured'}
+                  </span>
+                  <span className="store-source-url">
+                    {skillSources.length > 0
+                      ? `${skillSources[0].url.replace(/^https?:\/\//, '')} / ${skillSources[0].project}`
+                      : 'Click to configure'}
+                  </span>
+                </div>
+
+                {/* Install result */}
+                {installResult && (
+                  <div className="skill-install-result">
+                    {installResult.installed.length > 0 && (
+                      <div className="install-result-success">
+                        Installed: {installResult.installed.join(', ')}
+                      </div>
+                    )}
+                    {installResult.skipped.length > 0 && (
+                      <div className="install-result-skipped">
+                        Already installed: {installResult.skipped.join(', ')}
+                      </div>
+                    )}
+                    {installResult.errors.length > 0 && (
+                      <div className="install-result-error">
+                        Errors: {installResult.errors.join(', ')}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Skills list */}
+                {storeLoading ? (
+                  <div className="side-panel-loading">
+                    <div className="loading-spinner" />
+                    Loading remote skills...
+                  </div>
+                ) : Object.keys(remoteSkills).length === 0 ? (
+                  <div className="side-panel-empty">
+                    <span className="empty-icon">{Icons.skill}</span>
+                    <p>No remote skills</p>
+                    <p className="hint">{skillSources.length === 0 ? 'Configure a source to get started' : 'No skills found in the repository'}</p>
+                    <button className="side-panel-action-btn" onClick={() => setEditingSource(true)}>
+                      Configure Source
+                    </button>
+                  </div>
+                ) : (
+                  <div className="side-panel-list">
+                    {Object.entries(remoteSkills).map(([name, info]) => {
+                      const installed = isSkillInstalled(name)
+                      const depsCount = getDepsCount(name)
+                      const isCurrentlyInstalling = installing === name
+                      return (
+                        <div key={name} className={`remote-skill-card ${installed ? 'installed' : ''}`}>
+                          <div className="remote-skill-header">
+                            <span className="remote-skill-name">{name}</span>
+                            <span className="remote-skill-version">v{info.version}</span>
+                          </div>
+                          <p className="remote-skill-desc">{info.description}</p>
+                          {info.dependencies && info.dependencies.length > 0 ? (
+                            <div className="remote-skill-deps">
+                              Deps: {info.dependencies.map(d => (
+                                <span key={d} className={`dep-badge ${isSkillInstalled(d) ? 'installed' : ''}`}>{d}</span>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="remote-skill-deps">No dependencies</div>
+                          )}
+                          <div className="remote-skill-actions">
+                            {isCurrentlyInstalling ? (
+                              <button className="remote-skill-install-btn installing" disabled>
+                                <div className="loading-spinner small" />
+                                Installing{depsCount > 0 ? ` ${name} + ${depsCount} deps...` : '...'}
+                              </button>
+                            ) : installed ? (
+                              <button
+                                className="remote-skill-install-btn installed"
+                                onClick={() => handleInstallSkill(name)}
+                                title="Click to reinstall"
+                              >
+                                Installed
+                              </button>
+                            ) : (
+                              <button
+                                className="remote-skill-install-btn"
+                                onClick={() => handleInstallSkill(name)}
+                              >
+                                {Icons.download} Install{depsCount > 0 ? ` (+${depsCount})` : ''}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
@@ -588,6 +1089,283 @@ export default function ClaudeSettingsPanel({ isOpen, onClose, projectPath, onSe
                     </div>
                   )
                 })}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* === Teams Settings === */}
+        {activeTab === 'teams' && mode === 'list' && (
+          <>
+            {teamsLoading ? (
+              <div className="side-panel-loading">
+                <div className="loading-spinner" />
+                Loading config...
+              </div>
+            ) : (
+              <div className="teams-settings">
+                <div className="teams-setting-group">
+                  <div className="teams-setting-header">
+                    <div className="teams-setting-label">
+                      <span className="teams-setting-title">Agent Teams</span>
+                      <span className="teams-setting-desc">Multiple Claude agents collaborate in parallel on your tasks</span>
+                    </div>
+                    <label className="teams-toggle">
+                      <input
+                        type="checkbox"
+                        checked={teamsEnabled}
+                        onChange={(e) => handleTeamsToggle(e.target.checked)}
+                      />
+                      <span className="teams-toggle-slider" />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="teams-setting-group">
+                  <div className="teams-setting-label">
+                    <span className="teams-setting-title">Teammate Mode</span>
+                    <span className="teams-setting-desc">How teammate agents are displayed</span>
+                  </div>
+                  <select
+                    className="teams-select"
+                    value={teammateMode}
+                    onChange={(e) => handleTeammateModeChange(e.target.value)}
+                    disabled={!teamsEnabled}
+                  >
+                    <option value="auto">auto</option>
+                    <option value="in-process">in-process</option>
+                    <option value="tmux">tmux</option>
+                  </select>
+                  <div className="teams-mode-descriptions">
+                    <div className={`teams-mode-item ${teammateMode === 'auto' ? 'active' : ''}`}>
+                      <span className="teams-mode-name">auto</span>
+                      <span className="teams-mode-desc">Uses tmux split if in tmux session, otherwise in-process</span>
+                    </div>
+                    <div className={`teams-mode-item ${teammateMode === 'in-process' ? 'active' : ''}`}>
+                      <span className="teams-mode-name">in-process</span>
+                      <span className="teams-mode-desc">All agents run within a single terminal</span>
+                    </div>
+                    <div className={`teams-mode-item ${teammateMode === 'tmux' ? 'active' : ''}`}>
+                      <span className="teams-mode-name">tmux</span>
+                      <span className="teams-mode-desc">Each agent gets its own tmux split pane</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="teams-warning">
+                  <span className="teams-warning-icon">!</span>
+                  <div className="teams-warning-text">
+                    <strong>Experimental Feature</strong>
+                    <span>Token usage may increase significantly when using Agent Teams</span>
+                  </div>
+                </div>
+
+                {/* Team Templates */}
+                <div className="teams-templates-section">
+                  <div className="teams-setting-label">
+                    <span className="teams-setting-title">Team Templates</span>
+                    <span className="teams-setting-desc">Quick-launch a pre-configured team</span>
+                  </div>
+                  <div className="teams-templates-grid">
+                    {TEAM_TEMPLATES.map(tpl => (
+                      <div
+                        key={tpl.id}
+                        className={`teams-template-card ${selectedTemplate === tpl.id ? 'selected' : ''}`}
+                        onClick={() => setSelectedTemplate(selectedTemplate === tpl.id ? null : tpl.id)}
+                      >
+                        <div className="teams-template-header">
+                          <span className="teams-template-icon">{tpl.icon}</span>
+                          <span className="teams-template-name">{tpl.name}</span>
+                          <span className="teams-template-count">{tpl.members} agents</span>
+                        </div>
+                        <div className="teams-template-desc">{tpl.description}</div>
+                        {selectedTemplate === tpl.id && (
+                          <div className="teams-template-details">
+                            <div className="teams-template-roles">
+                              {tpl.roles.map((r, i) => (
+                                <span key={i} className="teams-template-role">{r}</span>
+                              ))}
+                            </div>
+                            <button
+                              className="teams-template-launch"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                // Enable teams + send the template prompt
+                                handleTeamsToggle(true)
+                                onSendCommand?.('claude --dangerously-skip-permissions')
+                                // Send the prompt after a short delay for Claude to start
+                                setTimeout(() => {
+                                  onSendCommand?.(tpl.prompt)
+                                }, 1500)
+                                setSelectedTemplate(null)
+                                onClose()
+                              }}
+                            >
+                              Launch Team
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* === Model Config === */}
+        {activeTab === 'model' && mode === 'list' && (
+          <>
+            {modelLoading ? (
+              <div className="side-panel-loading">
+                <div className="loading-spinner" />
+                Loading config...
+              </div>
+            ) : (
+              <div className="model-settings">
+                {/* Model Selection */}
+                <div className="model-setting-group">
+                  <div className="model-setting-label">
+                    <span className="model-setting-title">Model</span>
+                    <span className="model-setting-desc">Select the default Claude model</span>
+                  </div>
+                  <div className="model-preset-row">
+                    {['opus', 'sonnet', 'haiku'].map((m) => (
+                      <button
+                        key={m}
+                        className={`model-preset-btn ${getBaseModel(modelName) === m ? 'active' : ''}`}
+                        onClick={() => {
+                          const suffix = getContextSuffix(modelName)
+                          handleModelChange(suffix ? `${m}${suffix}` : m)
+                        }}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Context Window */}
+                <div className="model-setting-group">
+                  <div className="model-setting-label">
+                    <span className="model-setting-title">Context Window</span>
+                    <span className="model-setting-desc">Extended context uses premium pricing (2x input)</span>
+                  </div>
+                  <div className="model-preset-row">
+                    {[
+                      { label: '200K', suffix: '' },
+                      { label: '1M', suffix: '[1m]' },
+                      { label: '10M', suffix: '[10m]' },
+                      { label: '20M', suffix: '[20m]' },
+                      { label: '50M', suffix: '[50m]' },
+                      { label: '100M', suffix: '[100m]' },
+                    ].map(({ label, suffix }) => (
+                      <button
+                        key={label}
+                        className={`model-preset-btn ${getContextSuffix(modelName) === suffix ? 'active' : ''}`}
+                        onClick={() => handleContextChange(suffix)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Max Output Tokens */}
+                <div className="model-setting-group">
+                  <div className="model-setting-label">
+                    <span className="model-setting-title">Max Output Tokens</span>
+                    <span className="model-setting-desc">Maximum tokens per response (Opus: 128K, Sonnet/Haiku: 64K)</span>
+                  </div>
+                  <div className="model-preset-row">
+                    {[
+                      { label: '16K', value: '16000' },
+                      { label: '32K', value: '32000' },
+                      { label: '64K', value: '64000' },
+                      { label: '128K', value: '128000' },
+                    ].map((opt) => {
+                      const base = modelName.replace(/\[1m\]$/, '')
+                      const maxAllowed = base === 'opus' ? 128000 : 64000
+                      const disabled = Number(opt.value) > maxAllowed
+                      return (
+                        <button
+                          key={opt.value}
+                          className={`model-preset-btn ${maxOutputTokens === opt.value ? 'active' : ''} ${disabled ? 'disabled' : ''}`}
+                          onClick={() => !disabled && handleOutputTokensChange(maxOutputTokens === opt.value ? '' : opt.value)}
+                          disabled={disabled}
+                          title={disabled ? `Exceeds ${base || 'model'} limit` : opt.value === maxOutputTokens ? 'Click to reset to default' : ''}
+                        >
+                          {opt.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {maxOutputTokens && (
+                    <span className="model-current-value">Current: {Number(maxOutputTokens).toLocaleString()}</span>
+                  )}
+                </div>
+
+                {/* Thinking Tokens */}
+                <div className="model-setting-group">
+                  <div className="model-setting-label">
+                    <span className="model-setting-title">Thinking Tokens</span>
+                    <span className="model-setting-desc">Budget for extended thinking (default: 31,999)</span>
+                  </div>
+                  <div className="model-preset-row">
+                    {[
+                      { label: '8K', value: '8000' },
+                      { label: '16K', value: '16000' },
+                      { label: '32K', value: '31999' },
+                      { label: '64K', value: '64000' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        className={`model-preset-btn ${maxThinkingTokens === opt.value ? 'active' : ''}`}
+                        onClick={() => handleThinkingTokensChange(maxThinkingTokens === opt.value ? '' : opt.value)}
+                        title={opt.value === maxThinkingTokens ? 'Click to reset to default' : ''}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  {maxThinkingTokens && (
+                    <span className="model-current-value">Current: {Number(maxThinkingTokens).toLocaleString()}</span>
+                  )}
+                </div>
+
+                {/* Effort Level */}
+                <div className="model-setting-group">
+                  <div className="model-setting-label">
+                    <span className="model-setting-title">Effort Level</span>
+                    <span className="model-setting-desc">Higher effort = better quality, more token usage</span>
+                  </div>
+                  <div className="model-preset-row effort-row">
+                    {[
+                      { label: 'Low', value: 'low', desc: 'Fast' },
+                      { label: 'Medium', value: 'medium', desc: 'Balanced' },
+                      { label: 'High', value: 'high', desc: 'Best quality' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        className={`model-preset-btn effort-btn ${effortLevel === opt.value ? 'active' : ''}`}
+                        onClick={() => handleEffortChange(effortLevel === opt.value ? '' : opt.value)}
+                        title={opt.desc}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Warning */}
+                <div className="teams-warning">
+                  <span className="teams-warning-icon">!</span>
+                  <div className="teams-warning-text">
+                    <strong>Settings apply to new sessions</strong>
+                    <span>Changes are saved to ~/.claude/settings.json and take effect on next Claude launch</span>
+                  </div>
+                </div>
               </div>
             )}
           </>

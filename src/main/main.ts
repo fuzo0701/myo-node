@@ -83,7 +83,7 @@ function createWindow() {
 }
 
 // Terminal IPC handlers
-ipcMain.handle('terminal:create', (_, cols: number, rows: number, cwd?: string, shellType?: ShellType) => {
+ipcMain.handle('terminal:create', async (_, cols: number, rows: number, cwd?: string, shellType?: ShellType) => {
   const id = ++terminalIdCounter
   const shell = getShell(shellType)
 
@@ -105,6 +105,16 @@ ipcMain.handle('terminal:create', (_, cols: number, rows: number, cwd?: string, 
     LANG: 'ko_KR.UTF-8',
     LC_ALL: 'ko_KR.UTF-8',
   }
+
+  // Merge env from ~/.claude/settings.json
+  try {
+    const settingsPath = path.join(os.homedir(), '.claude', 'settings.json')
+    const content = await fs.promises.readFile(settingsPath, 'utf-8')
+    const json = JSON.parse(content)
+    if (json.env && typeof json.env === 'object') {
+      Object.assign(env, json.env)
+    }
+  } catch { /* settings.json missing or invalid — ignore */ }
 
   // Windows-specific: Use UTF-8 code page
   if (process.platform === 'win32') {
@@ -163,17 +173,122 @@ ipcMain.handle('terminal:getCwd', (_, id: number) => {
 })
 
 // File system handlers
-ipcMain.handle('fs:readDirectory', async (_, dirPath: string) => {
+ipcMain.handle('fs:readDirectory', async (_, dirPath: string, withStats?: boolean) => {
   try {
     const entries = await fs.promises.readdir(dirPath, { withFileTypes: true })
-    return entries.map((entry) => ({
-      name: entry.name,
-      type: entry.isDirectory() ? 'directory' : 'file',
+    if (!withStats) {
+      return entries.map((entry) => ({
+        name: entry.name,
+        type: entry.isDirectory() ? 'directory' : 'file',
+      }))
+    }
+    const results = await Promise.all(entries.map(async (entry) => {
+      try {
+        const fullPath = path.join(dirPath, entry.name)
+        const stat = await fs.promises.stat(fullPath)
+        return {
+          name: entry.name,
+          type: entry.isDirectory() ? 'directory' as const : 'file' as const,
+          size: stat.size,
+          mtime: stat.mtimeMs,
+        }
+      } catch {
+        return { name: entry.name, type: entry.isDirectory() ? 'directory' as const : 'file' as const, size: 0, mtime: 0 }
+      }
     }))
+    return results
   } catch (error) {
     console.error('Failed to read directory:', error)
     return []
   }
+})
+
+ipcMain.handle('fs:listFilesRecursive', async (_, dirPath: string, maxFiles: number = 5000) => {
+  const results: string[] = []
+  const ignoreDirs = new Set([
+    'node_modules', '.git', '.next', '.nuxt', 'dist', 'build', 'out',
+    '__pycache__', '.cache', '.vscode', '.idea', 'coverage', '.svn',
+    'vendor', 'target', '.gradle', 'bower_components',
+  ])
+  const normalizedRoot = dirPath.replace(/\\/g, '/')
+
+  async function walk(dir: string) {
+    if (results.length >= maxFiles) return
+    try {
+      const entries = await fs.promises.readdir(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (results.length >= maxFiles) break
+        if (entry.name.startsWith('.') && entry.isDirectory()) continue
+        if (ignoreDirs.has(entry.name) && entry.isDirectory()) continue
+        const fullPath = path.join(dir, entry.name).replace(/\\/g, '/')
+        if (entry.isDirectory()) {
+          await walk(fullPath)
+        } else {
+          results.push(fullPath.slice(normalizedRoot.length + 1))
+        }
+      }
+    } catch { /* permission errors etc. */ }
+  }
+
+  await walk(dirPath)
+  return results
+})
+
+ipcMain.handle('fs:searchInFiles', async (_, dirPath: string, query: string, maxResults: number = 200) => {
+  const results: Array<{ file: string; line: number; text: string }> = []
+  const ignoreDirs = new Set([
+    'node_modules', '.git', '.next', '.nuxt', 'dist', 'build', 'out',
+    '__pycache__', '.cache', '.vscode', '.idea', 'coverage', '.svn',
+    'vendor', 'target', '.gradle', 'bower_components',
+  ])
+  const binaryExts = new Set([
+    'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp', 'svg',
+    'woff', 'woff2', 'ttf', 'eot', 'otf',
+    'zip', 'tar', 'gz', 'rar', '7z',
+    'exe', 'dll', 'so', 'dylib', 'bin',
+    'pdf', 'doc', 'docx', 'xls', 'xlsx',
+    'mp3', 'mp4', 'wav', 'avi', 'mov',
+    'sqlite', 'db', 'lock',
+  ])
+  const normalizedRoot = dirPath.replace(/\\/g, '/')
+  const queryLower = query.toLowerCase()
+
+  async function walk(dir: string) {
+    if (results.length >= maxResults) return
+    try {
+      const entries = await fs.promises.readdir(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (results.length >= maxResults) break
+        if (entry.name.startsWith('.') && entry.isDirectory()) continue
+        if (ignoreDirs.has(entry.name) && entry.isDirectory()) continue
+        const fullPath = path.join(dir, entry.name).replace(/\\/g, '/')
+        if (entry.isDirectory()) {
+          await walk(fullPath)
+        } else {
+          const ext = entry.name.split('.').pop()?.toLowerCase() || ''
+          if (binaryExts.has(ext)) continue
+          try {
+            const stat = await fs.promises.stat(fullPath)
+            if (stat.size > 512 * 1024) continue // Skip files > 512KB
+            const content = await fs.promises.readFile(fullPath, 'utf-8')
+            const lines = content.split('\n')
+            for (let i = 0; i < lines.length && results.length < maxResults; i++) {
+              if (lines[i].toLowerCase().includes(queryLower)) {
+                results.push({
+                  file: fullPath.slice(normalizedRoot.length + 1),
+                  line: i + 1,
+                  text: lines[i].trim().slice(0, 200),
+                })
+              }
+            }
+          } catch { /* read error, skip */ }
+        }
+      }
+    } catch { /* permission errors etc. */ }
+  }
+
+  await walk(dirPath)
+  return results
 })
 
 ipcMain.handle('fs:getCurrentDirectory', () => {
@@ -230,8 +345,8 @@ ipcMain.handle('fs:watch', (_, dirPath: string) => {
   }
 
   try {
-    const watcher = fs.watch(dirPath, { persistent: false }, (eventType, filename) => {
-      // Debounce events and send to renderer
+    const watcher = fs.watch(dirPath, { persistent: false, recursive: true }, (eventType, filename) => {
+      // Send to renderer
       mainWindow?.webContents.send('fs:changed', dirPath, eventType, filename)
     })
 
@@ -363,6 +478,32 @@ ipcMain.handle('git:getRepoRoot', async (_, dirPath: string) => {
     return stdout.trim().replace(/\\/g, '/')
   } catch {
     return null
+  }
+})
+
+ipcMain.handle('git:getBranch', async (_, dirPath: string) => {
+  try {
+    const { stdout } = await execAsync('git branch --show-current', {
+      cwd: dirPath,
+      timeout: 5000,
+    })
+    return stdout.trim() || null
+  } catch {
+    return null
+  }
+})
+
+ipcMain.handle('git:getIgnored', async (_, repoRoot: string) => {
+  try {
+    const { stdout } = await execAsync('git ls-files --others --ignored --exclude-standard --directory', {
+      cwd: repoRoot,
+      timeout: 10000,
+      maxBuffer: 1024 * 1024,
+    })
+    // Returns relative paths, one per line; directories end with /
+    return stdout.split('\n').filter(Boolean).map(p => p.replace(/\/$/, ''))
+  } catch {
+    return []
   }
 })
 
@@ -638,16 +779,54 @@ ipcMain.handle('claude:listSkills', async () => {
     const skillsDir = path.join(os.homedir(), '.claude', 'skills')
     if (!fs.existsSync(skillsDir)) return []
     const entries = await fs.promises.readdir(skillsDir, { withFileTypes: true })
-    const skills: { name: string; description: string }[] = []
+    const skills: { name: string; description: string; commands: string[] }[] = []
     for (const entry of entries) {
       if (entry.isDirectory()) {
         const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md')
         try {
           const content = await fs.promises.readFile(skillMdPath, 'utf-8')
-          const firstLine = content.split('\n').find(l => l.trim()) || ''
-          skills.push({ name: entry.name, description: firstLine })
+          // Parse frontmatter description
+          let description = ''
+          const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/)
+          if (fmMatch) {
+            const descMatch = fmMatch[1].match(/description:\s*(.+)/)
+            if (descMatch) description = descMatch[1].trim()
+          }
+          if (!description) {
+            description = content.split('\n').find(l => l.trim() && !l.startsWith('---')) || ''
+          }
+          // Parse trigger commands from ## Trigger section
+          const commands: string[] = []
+          const triggerMatch = content.match(/## Trigger\s*\n([\s\S]*?)(?=\n## |\n---|$)/)
+          if (triggerMatch) {
+            const triggerBlock = triggerMatch[1]
+            const lines = triggerBlock.split('\n')
+            for (const line of lines) {
+              // Match "- `/command`" or "- /command" patterns
+              const cmdMatch = line.match(/^-\s+`?(\/\S+)`?/)
+              if (cmdMatch) {
+                commands.push(cmdMatch[1])
+                continue
+              }
+              // Match "/command args" inside code blocks
+              const codeMatch = line.match(/^\s*(\/\S+(?:\s+\S+)*)/)
+              if (codeMatch && !line.startsWith('#') && !line.startsWith('```')) {
+                commands.push(codeMatch[1])
+              }
+            }
+          }
+          // Fallback: extract slash commands from description
+          if (commands.length === 0) {
+            const slashCmds = description.match(/"(\/\S+)"/g)
+            if (slashCmds) {
+              for (const m of slashCmds) commands.push(m.replace(/"/g, ''))
+            }
+          }
+          // Deduplicate
+          const uniqueCommands = [...new Set(commands)]
+          skills.push({ name: entry.name, description, commands: uniqueCommands })
         } catch {
-          skills.push({ name: entry.name, description: '' })
+          skills.push({ name: entry.name, description: '', commands: [] })
         }
       }
     }
@@ -685,6 +864,158 @@ ipcMain.handle('claude:deleteSkill', async (_, name: string) => {
   } catch {
     return false
   }
+})
+
+// Skill Store: fetch with custom headers (text + JSON support)
+function fetchWithHeaders(url: string, headers?: Record<string, string>): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const parsedUrl = new URL(url)
+    const req = https.request({
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port || undefined,
+      path: parsedUrl.pathname + parsedUrl.search,
+      method: 'GET',
+      headers: { 'User-Agent': 'myo-node/1.0', ...headers },
+    }, (res) => {
+      let body = ''
+      res.on('data', (chunk: Buffer) => { body += chunk.toString() })
+      res.on('end', () => resolve(body))
+    })
+    req.on('error', reject)
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error('Timeout')) })
+    req.end()
+  })
+}
+
+const skillSourcesPath = path.join(os.homedir(), '.claude', 'skill-sources.json')
+
+ipcMain.handle('claude:readSkillSources', async () => {
+  try {
+    const content = await fs.promises.readFile(skillSourcesPath, 'utf-8')
+    return JSON.parse(content)
+  } catch {
+    return []
+  }
+})
+
+ipcMain.handle('claude:writeSkillSources', async (_, sources: unknown[]) => {
+  try {
+    await fs.promises.mkdir(path.dirname(skillSourcesPath), { recursive: true })
+    await fs.promises.writeFile(skillSourcesPath, JSON.stringify(sources, null, 2), 'utf-8')
+    return true
+  } catch {
+    return false
+  }
+})
+
+ipcMain.handle('claude:fetchRemoteSkills', async () => {
+  try {
+    const content = await fs.promises.readFile(skillSourcesPath, 'utf-8')
+    const sources = JSON.parse(content) as Array<{ url: string; project: string; token: string; branch: string }>
+    if (!sources.length) return {}
+
+    const src = sources[0]
+    const projectEncoded = encodeURIComponent(src.project)
+    const apiUrl = `${src.url}/api/v4/projects/${projectEncoded}/repository/files/manifest.json/raw?ref=${src.branch}`
+    const body = await fetchWithHeaders(apiUrl, { 'PRIVATE-TOKEN': src.token })
+    const manifest = JSON.parse(body) as { skills: Record<string, { description: string; version: string; dependencies: string[] }> }
+    return manifest.skills || {}
+  } catch (err) {
+    console.error('fetchRemoteSkills error:', err)
+    return {}
+  }
+})
+
+function resolveDependencies(
+  skillName: string,
+  manifest: Record<string, { dependencies?: string[] }>,
+  resolved: Set<string> = new Set(),
+  visited: Set<string> = new Set()
+): string[] {
+  if (visited.has(skillName)) return [...resolved]
+  visited.add(skillName)
+
+  const skill = manifest[skillName]
+  if (!skill) return [...resolved]
+
+  for (const dep of skill.dependencies || []) {
+    if (!resolved.has(dep)) {
+      resolveDependencies(dep, manifest, resolved, visited)
+    }
+  }
+  resolved.add(skillName)
+  return [...resolved]
+}
+
+ipcMain.handle('claude:installRemoteSkill', async (_, skillName: string, forceReinstall?: boolean) => {
+  const installed: string[] = []
+  const skipped: string[] = []
+  const errors: string[] = []
+
+  try {
+    const content = await fs.promises.readFile(skillSourcesPath, 'utf-8')
+    const sources = JSON.parse(content) as Array<{ url: string; project: string; token: string; branch: string }>
+    if (!sources.length) { errors.push('No skill sources configured'); return { installed, skipped, errors } }
+
+    const src = sources[0]
+    const projectEncoded = encodeURIComponent(src.project)
+    const headers = { 'PRIVATE-TOKEN': src.token }
+
+    // Fetch manifest
+    const manifestUrl = `${src.url}/api/v4/projects/${projectEncoded}/repository/files/manifest.json/raw?ref=${src.branch}`
+    const manifestBody = await fetchWithHeaders(manifestUrl, headers)
+    const manifest = JSON.parse(manifestBody) as { skills: Record<string, { dependencies?: string[] }> }
+
+    // Resolve dependencies
+    const toInstall = resolveDependencies(skillName, manifest.skills)
+
+    for (const name of toInstall) {
+      const skillDir = path.join(os.homedir(), '.claude', 'skills', name)
+
+      // Check if already installed
+      if (!forceReinstall) {
+        try {
+          await fs.promises.access(skillDir)
+          skipped.push(name)
+          continue
+        } catch { /* not installed, proceed */ }
+      }
+
+      try {
+        // Get file tree for this skill
+        const treeUrl = `${src.url}/api/v4/projects/${projectEncoded}/repository/tree?path=${encodeURIComponent(name)}&recursive=true&ref=${src.branch}`
+        const treeBody = await fetchWithHeaders(treeUrl, headers)
+        const tree = JSON.parse(treeBody) as Array<{ path: string; type: string }>
+
+        const blobs = tree.filter(item => item.type === 'blob')
+        if (blobs.length === 0) {
+          errors.push(`${name}: no files found`)
+          continue
+        }
+
+        // Download and save each file
+        for (const blob of blobs) {
+          const fileUrl = `${src.url}/api/v4/projects/${projectEncoded}/repository/files/${encodeURIComponent(blob.path)}/raw?ref=${src.branch}`
+          const fileContent = await fetchWithHeaders(fileUrl, headers)
+
+          // blob.path is like "skillName/SKILL.md" or "skillName/stages/stage1.md"
+          // We want to save to ~/.claude/skills/skillName/...
+          const relativePath = blob.path.startsWith(name + '/') ? blob.path.slice(name.length + 1) : blob.path
+          const destPath = path.join(skillDir, relativePath)
+          await fs.promises.mkdir(path.dirname(destPath), { recursive: true })
+          await fs.promises.writeFile(destPath, fileContent, 'utf-8')
+        }
+
+        installed.push(name)
+      } catch (err) {
+        errors.push(`${name}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+  } catch (err) {
+    errors.push(`Setup error: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  return { installed, skipped, errors }
 })
 
 // Claude MCP config handlers
@@ -729,6 +1060,189 @@ ipcMain.handle('claude:writeMcpConfig', async (_, scope: string, servers: Record
     return true
   } catch {
     return false
+  }
+})
+
+// Claude Model config handlers
+ipcMain.handle('claude:readModelConfig', async () => {
+  try {
+    const configPath = path.join(os.homedir(), '.claude', 'settings.json')
+    const content = await fs.promises.readFile(configPath, 'utf-8')
+    const json = JSON.parse(content)
+    const env = (json.env || {}) as Record<string, string>
+    return {
+      model: (json.model as string) || '',
+      maxOutputTokens: env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || '',
+      maxThinkingTokens: env.MAX_THINKING_TOKENS || '',
+      effortLevel: env.CLAUDE_CODE_EFFORT_LEVEL || '',
+    }
+  } catch {
+    return { model: '', maxOutputTokens: '', maxThinkingTokens: '', effortLevel: '' }
+  }
+})
+
+ipcMain.handle('claude:writeModelConfig', async (_, config: { model: string; maxOutputTokens: string; maxThinkingTokens: string; effortLevel: string }) => {
+  try {
+    const configPath = path.join(os.homedir(), '.claude', 'settings.json')
+    let existing: Record<string, unknown> = {}
+    try {
+      const content = await fs.promises.readFile(configPath, 'utf-8')
+      existing = JSON.parse(content)
+    } catch { /* file doesn't exist */ }
+
+    // Handle model
+    if (config.model) {
+      existing.model = config.model
+    } else {
+      delete existing.model
+    }
+
+    // Handle env vars
+    if (!existing.env || typeof existing.env !== 'object') {
+      existing.env = {}
+    }
+    const env = existing.env as Record<string, string>
+
+    // CLAUDE_CODE_MAX_OUTPUT_TOKENS
+    if (config.maxOutputTokens) {
+      env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = config.maxOutputTokens
+    } else {
+      delete env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+    }
+
+    // MAX_THINKING_TOKENS
+    if (config.maxThinkingTokens) {
+      env.MAX_THINKING_TOKENS = config.maxThinkingTokens
+    } else {
+      delete env.MAX_THINKING_TOKENS
+    }
+
+    // CLAUDE_CODE_EFFORT_LEVEL
+    if (config.effortLevel) {
+      env.CLAUDE_CODE_EFFORT_LEVEL = config.effortLevel
+    } else {
+      delete env.CLAUDE_CODE_EFFORT_LEVEL
+    }
+
+    // Clean up empty env
+    if (Object.keys(env).length === 0) {
+      delete existing.env
+    }
+
+    await fs.promises.mkdir(path.dirname(configPath), { recursive: true })
+    await fs.promises.writeFile(configPath, JSON.stringify(existing, null, 2), 'utf-8')
+    return true
+  } catch {
+    return false
+  }
+})
+
+// Claude Agent Teams config handlers
+ipcMain.handle('claude:readAgentTeamsConfig', async () => {
+  try {
+    const configPath = path.join(os.homedir(), '.claude', 'settings.json')
+    const content = await fs.promises.readFile(configPath, 'utf-8')
+    const json = JSON.parse(content)
+    return {
+      enabled: json.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS === '1',
+      teammateMode: json.teammateMode || 'auto',
+    }
+  } catch {
+    return { enabled: false, teammateMode: 'auto' }
+  }
+})
+
+ipcMain.handle('claude:writeAgentTeamsConfig', async (_, config: { enabled: boolean; teammateMode: string }) => {
+  try {
+    const configPath = path.join(os.homedir(), '.claude', 'settings.json')
+    let existing: Record<string, unknown> = {}
+    try {
+      const content = await fs.promises.readFile(configPath, 'utf-8')
+      existing = JSON.parse(content)
+    } catch { /* file doesn't exist */ }
+
+    // Handle env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
+    if (config.enabled) {
+      if (!existing.env || typeof existing.env !== 'object') {
+        existing.env = {}
+      }
+      (existing.env as Record<string, string>).CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
+    } else {
+      if (existing.env && typeof existing.env === 'object') {
+        delete (existing.env as Record<string, string>).CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
+        if (Object.keys(existing.env as Record<string, string>).length === 0) {
+          delete existing.env
+        }
+      }
+    }
+
+    // Handle teammateMode
+    if (config.teammateMode && config.teammateMode !== 'auto') {
+      existing.teammateMode = config.teammateMode
+    } else {
+      delete existing.teammateMode
+    }
+
+    await fs.promises.mkdir(path.dirname(configPath), { recursive: true })
+    await fs.promises.writeFile(configPath, JSON.stringify(existing, null, 2), 'utf-8')
+    return true
+  } catch {
+    return false
+  }
+})
+
+// Claude Auth status handler
+ipcMain.handle('claude:getAuthStatus', async () => {
+  try {
+    const credPath = path.join(os.homedir(), '.claude', '.credentials.json')
+    const content = await fs.promises.readFile(credPath, 'utf-8')
+    const json = JSON.parse(content)
+    const oauth = json.claudeAiOauth
+    if (!oauth || !oauth.accessToken) return { loggedIn: false, subscriptionType: '', expiresAt: 0 }
+    return {
+      loggedIn: true,
+      subscriptionType: oauth.subscriptionType || '',
+      expiresAt: oauth.expiresAt || 0,
+    }
+  } catch {
+    return { loggedIn: false, subscriptionType: '', expiresAt: 0 }
+  }
+})
+
+// Claude global input history handler
+ipcMain.handle('claude:readInputHistory', async (_, limit?: number) => {
+  try {
+    const histPath = path.join(os.homedir(), '.claude', 'history.jsonl')
+    const content = await fs.promises.readFile(histPath, 'utf-8')
+    const lines = content.trim().split('\n').filter(Boolean)
+    const entries: Array<{ display: string; timestamp: number; project: string; sessionId: string }> = []
+    for (const line of lines) {
+      try {
+        const obj = JSON.parse(line)
+        if (obj.display) entries.push({
+          display: obj.display.trim(),
+          timestamp: obj.timestamp || 0,
+          project: obj.project || '',
+          sessionId: obj.sessionId || '',
+        })
+      } catch { /* skip malformed lines */ }
+    }
+    // Sort newest first
+    entries.sort((a, b) => b.timestamp - a.timestamp)
+    return limit ? entries.slice(0, limit) : entries
+  } catch {
+    return []
+  }
+})
+
+// Claude manifest (command registry) handler
+ipcMain.handle('claude:readManifest', async () => {
+  try {
+    const manifestPath = path.join(os.homedir(), '.claude', 'manifest.json')
+    const content = await fs.promises.readFile(manifestPath, 'utf-8')
+    return JSON.parse(content)
+  } catch {
+    return null
   }
 })
 
@@ -1122,6 +1636,144 @@ ipcMain.handle('claude:readKeybindings', async () => {
   } catch {
     return null
   }
+})
+
+// Agent Teams monitoring handlers
+const agentTeamsWatchers: Map<string, fs.FSWatcher> = new Map()
+
+ipcMain.handle('agentTeams:list', async () => {
+  try {
+    const teamsDir = path.join(os.homedir(), '.claude', 'teams')
+    if (!fs.existsSync(teamsDir)) return []
+    const entries = await fs.promises.readdir(teamsDir, { withFileTypes: true })
+    return entries.filter(e => e.isDirectory()).map(e => e.name)
+  } catch {
+    return []
+  }
+})
+
+ipcMain.handle('agentTeams:getInfo', async (_, teamName: string) => {
+  try {
+    const teamsDir = path.join(os.homedir(), '.claude', 'teams')
+    const configPath = path.join(teamsDir, teamName, 'config.json')
+
+    // Read team config
+    let members: Array<{ name: string; agentId: string; agentType: string; model?: string; color?: string }> = []
+    try {
+      const content = await fs.promises.readFile(configPath, 'utf-8')
+      const json = JSON.parse(content)
+      if (Array.isArray(json.members)) {
+        members = json.members.map((m: Record<string, unknown>) => ({
+          name: String(m.name || ''),
+          agentId: String(m.agentId || m.agent_id || ''),
+          agentType: String(m.agentType || m.agent_type || 'teammate'),
+          model: m.model ? String(m.model) : undefined,
+          color: m.color ? String(m.color) : undefined,
+        }))
+      }
+    } catch { /* config missing or invalid */ }
+
+    // Read tasks
+    const tasks: Array<{ id: string; subject: string; status: string; assignee?: string; blockedBy?: string[] }> = []
+    try {
+      const tasksDir = path.join(os.homedir(), '.claude', 'tasks', teamName)
+      if (fs.existsSync(tasksDir)) {
+        const taskFiles = await fs.promises.readdir(tasksDir)
+        for (const file of taskFiles) {
+          if (!file.endsWith('.json')) continue
+          try {
+            const taskContent = await fs.promises.readFile(path.join(tasksDir, file), 'utf-8')
+            const taskJson = JSON.parse(taskContent)
+            // Defensive: handle both single task object and array
+            const taskItems = Array.isArray(taskJson) ? taskJson : [taskJson]
+            for (const t of taskItems) {
+              tasks.push({
+                id: String(t.id || file.replace('.json', '')),
+                subject: String(t.subject || t.title || ''),
+                status: String(t.status || 'pending'),
+                assignee: t.assignee ? String(t.assignee) : undefined,
+                blockedBy: Array.isArray(t.blockedBy) ? t.blockedBy.map(String) : undefined,
+              })
+            }
+          } catch { /* skip invalid task file */ }
+        }
+      }
+    } catch { /* tasks dir missing */ }
+
+    // Read inbox messages
+    const messages: Array<{ from: string; text: string; summary?: string; timestamp: number; color?: string; read: boolean }> = []
+    try {
+      const inboxDir = path.join(teamsDir, teamName, 'inboxes')
+      if (fs.existsSync(inboxDir)) {
+        const inboxFiles = await fs.promises.readdir(inboxDir)
+        for (const file of inboxFiles) {
+          if (!file.endsWith('.json')) continue
+          try {
+            const msgContent = await fs.promises.readFile(path.join(inboxDir, file), 'utf-8')
+            const msgJson = JSON.parse(msgContent)
+            const msgItems = Array.isArray(msgJson) ? msgJson : [msgJson]
+            for (const msg of msgItems) {
+              messages.push({
+                from: String(msg.from || msg.sender || ''),
+                text: String(msg.text || msg.message || msg.content || ''),
+                summary: msg.summary ? String(msg.summary) : undefined,
+                timestamp: Number(msg.timestamp || msg.time || Date.now()),
+                color: msg.color ? String(msg.color) : undefined,
+                read: Boolean(msg.read),
+              })
+            }
+          } catch { /* skip invalid inbox file */ }
+        }
+        // Sort messages by timestamp descending (newest first)
+        messages.sort((a, b) => b.timestamp - a.timestamp)
+      }
+    } catch { /* inboxes dir missing */ }
+
+    return { teamName, members, tasks, messages }
+  } catch {
+    return null
+  }
+})
+
+ipcMain.handle('agentTeams:watch', async () => {
+  // Already watching
+  if (agentTeamsWatchers.size > 0) return true
+
+  const teamsDir = path.join(os.homedir(), '.claude', 'teams')
+  const tasksDir = path.join(os.homedir(), '.claude', 'tasks')
+
+  const startWatcher = (dir: string, label: string) => {
+    try {
+      // Ensure directory exists before watching
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true })
+      }
+      const watcher = fs.watch(dir, { persistent: false, recursive: true }, (_eventType, filename) => {
+        // Extract team name from filename (e.g., "team-name/config.json" → "team-name")
+        const teamName = filename ? filename.split(/[\\/]/)[0] : ''
+        mainWindow?.webContents.send('agentTeams:changed', teamName)
+      })
+      watcher.on('error', (err) => {
+        console.error(`Agent teams watcher error (${label}):`, err)
+        agentTeamsWatchers.delete(label)
+      })
+      agentTeamsWatchers.set(label, watcher)
+    } catch (err) {
+      console.error(`Failed to watch ${label}:`, err)
+    }
+  }
+
+  startWatcher(teamsDir, 'teams')
+  startWatcher(tasksDir, 'tasks')
+  return true
+})
+
+ipcMain.handle('agentTeams:unwatch', async () => {
+  for (const [key, watcher] of agentTeamsWatchers) {
+    watcher.close()
+    agentTeamsWatchers.delete(key)
+  }
+  return true
 })
 
 // Window controls

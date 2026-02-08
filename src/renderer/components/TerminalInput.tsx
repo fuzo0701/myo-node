@@ -145,7 +145,14 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
 
     // Normalize path (handle .. and .)
     const normalizePath = useCallback((basePath: string, relativePath: string): string => {
-      // Handle Windows drive letter (e.g., C:\)
+      // If relativePath is absolute (has drive letter), use it directly
+      const relDriveMatch = relativePath.match(/^([A-Z]:)/i)
+      if (relDriveMatch) {
+        // Relative path is absolute, just return it normalized
+        return relativePath.replace(/\//g, '\\')
+      }
+
+      // Handle Windows drive letter in base path (e.g., C:\)
       const driveMatch = basePath.match(/^([A-Z]:)/i)
       const drive = driveMatch ? driveMatch[1] : ''
 
@@ -409,21 +416,100 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
       (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (isComposingRef.current) return
 
+        const isMod = e.ctrlKey || e.metaKey
+
+        // === Claude Code shortcuts (must work in input) ===
+
         // Ctrl+C: send SIGINT (copy is handled by blurring textarea when selecting in output area)
-        if (e.ctrlKey && e.key === 'c') {
+        if (isMod && e.key === 'c') {
           e.preventDefault()
+          e.stopPropagation()
           onSignal('\x03')
           return
         }
-        // Ctrl+D
-        if (e.ctrlKey && e.key === 'd') {
+
+        // Ctrl+D: EOF
+        if (isMod && e.key === 'd') {
           e.preventDefault()
+          e.stopPropagation()
           onSignal('\x04')
           return
         }
-        // Ctrl+Z
-        if (e.ctrlKey && e.key === 'z') {
+
+        // Ctrl+L: Clear screen (send to PTY)
+        if (isMod && e.key === 'l') {
           e.preventDefault()
+          e.stopPropagation()
+          onSignal('\x0c') // Form feed (clear screen)
+          return
+        }
+
+        // Ctrl+R: Reverse search (handled by Claude Code)
+        if (isMod && e.key === 'r') {
+          e.preventDefault()
+          e.stopPropagation()
+          // Let it pass through to PTY for Claude Code's reverse search
+          onSignal('\x12')
+          return
+        }
+
+        // Ctrl+T: Toggle task list (dispatch event for app-level handling)
+        if (isMod && e.key === 't' && !e.shiftKey) {
+          e.preventDefault()
+          e.stopPropagation()
+          window.dispatchEvent(new CustomEvent('toggle-task-list'))
+          return
+        }
+
+        // Ctrl+G: Open in editor (dispatch event)
+        if (isMod && e.key === 'g') {
+          e.preventDefault()
+          e.stopPropagation()
+          window.dispatchEvent(new CustomEvent('open-in-editor'))
+          return
+        }
+
+        // Ctrl+O: Toggle verbose output (send to PTY)
+        if (isMod && e.key === 'o') {
+          e.preventDefault()
+          e.stopPropagation()
+          onSignal('\x0f') // Shift Out
+          return
+        }
+
+        // Ctrl+U: Delete entire line
+        if (isMod && e.key === 'u') {
+          e.preventDefault()
+          e.stopPropagation()
+          setValue('')
+          return
+        }
+
+        // Ctrl+K: Delete to end of line
+        if (isMod && e.key === 'k') {
+          e.preventDefault()
+          e.stopPropagation()
+          const el = textareaRef.current
+          if (el) {
+            const start = el.selectionStart
+            const text = valueRef.current
+            setValue(text.slice(0, start))
+          }
+          return
+        }
+
+        // Ctrl+Y: Paste (handled by PTY/Claude Code)
+        if (isMod && e.key === 'y') {
+          e.preventDefault()
+          e.stopPropagation()
+          onSignal('\x19')
+          return
+        }
+
+        // Ctrl+Z: SIGTSTP
+        if (isMod && e.key === 'z') {
+          e.preventDefault()
+          e.stopPropagation()
           onSignal('\x1a')
           return
         }
@@ -431,6 +517,7 @@ const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(
         // Escape: send to PTY (stop Claude Code), also close suggestions
         if (e.key === 'Escape') {
           e.preventDefault()
+          e.stopPropagation()
           setShowSuggestions(false)
           onSignal('\x1b') // Send ESC to PTY
           return

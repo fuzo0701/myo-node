@@ -9,6 +9,8 @@ interface FileNode {
   type: 'file' | 'directory'
   children?: FileNode[]
   expanded?: boolean
+  size?: number
+  mtime?: number
 }
 
 interface FileExplorerProps {
@@ -276,6 +278,7 @@ function FileTreeItem({
   selectedPaths,
   cutPaths,
   gitStatusMap,
+  gitIgnoredSet,
 }: {
   node: FileNode
   depth: number
@@ -285,10 +288,12 @@ function FileTreeItem({
   selectedPaths: Set<string>
   cutPaths: string[]
   gitStatusMap: Map<string, GitStatusInfo>
+  gitIgnoredSet: Set<string>
 }) {
   const isDirectory = node.type === 'directory'
   const isSelected = selectedPaths.has(node.path)
   const isCut = cutPaths.includes(node.path)
+  const isIgnored = gitIgnoredSet.has(node.path)
   const paddingLeft = 12 + depth * 16
   const gitInfo = gitStatusMap.get(node.path)
   const gitClass = gitInfo?.status ? `git-${gitInfo.status}` : ''
@@ -296,7 +301,7 @@ function FileTreeItem({
   return (
     <>
       <div
-        className={`file-tree-item ${isSelected ? 'selected' : ''} ${isCut ? 'cut' : ''}`}
+        className={`file-tree-item ${isSelected ? 'selected' : ''} ${isCut ? 'cut' : ''} ${isIgnored ? 'git-ignored' : ''}`}
         style={{ paddingLeft }}
         onClick={(e) => {
           onClick(e, node.path, node.type)
@@ -333,6 +338,7 @@ function FileTreeItem({
               selectedPaths={selectedPaths}
               cutPaths={cutPaths}
               gitStatusMap={gitStatusMap}
+              gitIgnoredSet={gitIgnoredSet}
             />
           ))}
         </div>
@@ -516,9 +522,15 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
   const { addRecentFolder } = useExplorerStore()
   const showHiddenFiles = useSettingsStore((s) => s.showHiddenFiles)
   const setShowHiddenFiles = useSettingsStore((s) => s.setShowHiddenFiles)
+  const sortMode = useSettingsStore((s) => s.explorerSortMode)
+  const setSortMode = useSettingsStore((s) => s.setExplorerSortMode)
+  const [showSortMenu, setShowSortMenu] = useState(false)
   const [rootPath, setRootPath] = useState<string>('')
   const [tree, setTree] = useState<FileNode[]>([])
   const [loading, setLoading] = useState(false)
+  const [filterQuery, setFilterQuery] = useState('')
+  const [showFilter, setShowFilter] = useState(false)
+  const filterInputRef = useRef<HTMLInputElement>(null)
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
   const [selectedType, setSelectedType] = useState<'file' | 'directory' | null>(null)
   const anchorPathRef = useRef<string | null>(null)  // For Shift+Click range selection
@@ -533,6 +545,8 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
   const [renameState, setRenameState] = useState<{ path: string; name: string } | null>(null)
   const [createState, setCreateState] = useState<{ type: 'file' | 'folder'; targetDir: string } | null>(null)
   const [gitStatusMap, setGitStatusMap] = useState<Map<string, GitStatusInfo>>(new Map())
+  const [gitIgnoredSet, setGitIgnoredSet] = useState<Set<string>>(new Set())
+  const [gitBranch, setGitBranch] = useState<string | null>(null)
   const gitRepoRootRef = useRef<string | null>(null)
   const explorerRef = useRef<HTMLDivElement>(null)
 
@@ -542,14 +556,30 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
       gitRepoRootRef.current = repoRoot || null
       if (!repoRoot) {
         setGitStatusMap(new Map())
+        setGitBranch(null)
         return
       }
-      const statusData = await window.git?.getStatus(repoRoot)
+      const [statusData, branch, ignoredList] = await Promise.all([
+        window.git?.getStatus(repoRoot),
+        window.git?.getBranch(dirPath),
+        window.git?.getIgnored(repoRoot),
+      ])
+      setGitBranch(branch || null)
+      // Build ignored set
+      const normalizedRoot = repoRoot.replace(/\\/g, '/')
+      if (ignoredList && ignoredList.length > 0) {
+        const ignored = new Set<string>()
+        for (const relPath of ignoredList) {
+          ignored.add(`${normalizedRoot}/${relPath}`)
+        }
+        setGitIgnoredSet(ignored)
+      } else {
+        setGitIgnoredSet(new Set())
+      }
       if (!statusData) {
         setGitStatusMap(new Map())
         return
       }
-      const normalizedRoot = repoRoot.replace(/\\/g, '/')
       const newMap = new Map<string, GitStatusInfo>()
       // Track which directories have modified children
       const dirStatuses = new Map<string, GitStatusCode>()
@@ -587,29 +617,46 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
     }
   }, [])
 
+  // Sort comparator based on current sort mode
+  const needsStats = sortMode === 'date' || sortMode === 'size'
+
+  const sortEntries = useCallback((a: { name: string; type: string; size?: number; mtime?: number }, b: { name: string; type: string; size?: number; mtime?: number }) => {
+    // Directories always first
+    if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
+    switch (sortMode) {
+      case 'type': {
+        const extA = a.name.includes('.') ? a.name.split('.').pop()!.toLowerCase() : ''
+        const extB = b.name.includes('.') ? b.name.split('.').pop()!.toLowerCase() : ''
+        return extA.localeCompare(extB) || a.name.localeCompare(b.name)
+      }
+      case 'date':
+        return (b.mtime || 0) - (a.mtime || 0) // newest first
+      case 'size':
+        return (b.size || 0) - (a.size || 0) // largest first
+      default: // 'name'
+        return a.name.localeCompare(b.name)
+    }
+  }, [sortMode])
+
   const loadDirectory = useCallback(async (dirPath: string) => {
     setLoading(true)
     try {
-      // Use Electron IPC to read directory
-      const entries = await window.fileSystem?.readDirectory(dirPath)
+      const entries = await window.fileSystem?.readDirectory(dirPath, needsStats)
       if (entries) {
         const nodes: FileNode[] = entries
-          .filter((entry: { name: string }) => showHiddenFiles || !entry.name.startsWith('.'))
-          .sort((a: { type: string; name: string }, b: { type: string; name: string }) => {
-            // Directories first, then files
-            if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
-            return a.name.localeCompare(b.name)
-          })
-          .map((entry: { name: string; type: 'file' | 'directory' }) => ({
+          .filter((entry) => showHiddenFiles || !entry.name.startsWith('.'))
+          .sort(sortEntries)
+          .map((entry) => ({
             name: entry.name,
             path: `${dirPath}/${entry.name}`.replace(/\\/g, '/'),
             type: entry.type,
             expanded: false,
             children: entry.type === 'directory' ? [] : undefined,
+            size: entry.size,
+            mtime: entry.mtime,
           }))
         setTree(nodes)
         setRootPath(dirPath)
-        // Fetch git status after loading directory
         fetchGitStatus(dirPath)
       }
     } catch (error) {
@@ -617,24 +664,23 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
     } finally {
       setLoading(false)
     }
-  }, [fetchGitStatus, showHiddenFiles])
+  }, [fetchGitStatus, showHiddenFiles, sortEntries, needsStats])
 
   // Helper: build entries into FileNode[]
-  const buildNodes = useCallback((dirPath: string, entries: Array<{ name: string; type: 'file' | 'directory' }>): FileNode[] => {
+  const buildNodes = useCallback((dirPath: string, entries: Array<{ name: string; type: 'file' | 'directory'; size?: number; mtime?: number }>): FileNode[] => {
     return entries
       .filter((entry) => showHiddenFiles || !entry.name.startsWith('.'))
-      .sort((a, b) => {
-        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
-        return a.name.localeCompare(b.name)
-      })
+      .sort(sortEntries)
       .map((entry) => ({
         name: entry.name,
         path: `${dirPath}/${entry.name}`.replace(/\\/g, '/'),
         type: entry.type,
         expanded: false,
         children: entry.type === 'directory' ? [] : undefined,
+        size: entry.size,
+        mtime: entry.mtime,
       }))
-  }, [showHiddenFiles])
+  }, [showHiddenFiles, sortEntries])
 
   // Collect expanded paths from tree
   const collectExpandedPaths = useCallback((nodes: FileNode[]): Set<string> => {
@@ -658,7 +704,7 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
 
     // Rebuild tree recursively, re-expanding previously expanded dirs
     const rebuildDir = async (dirPath: string): Promise<FileNode[]> => {
-      const entries = await window.fileSystem?.readDirectory(dirPath)
+      const entries = await window.fileSystem?.readDirectory(dirPath, needsStats)
       if (!entries) return []
       const nodes = buildNodes(dirPath, entries)
       // Re-expand previously expanded directories
@@ -676,6 +722,19 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
     fetchGitStatus(rootPath)
   }, [rootPath, tree, buildNodes, collectExpandedPaths, fetchGitStatus])
 
+  // Collapse all expanded directories
+  const collapseAll = useCallback(() => {
+    setTree((prevTree) => {
+      const collapse = (nodes: FileNode[]): FileNode[] =>
+        nodes.map(n => ({
+          ...n,
+          expanded: false,
+          children: n.children ? collapse(n.children) : undefined,
+        }))
+      return collapse(prevTree)
+    })
+  }, [])
+
   const toggleDirectory = useCallback(async (path: string) => {
     setTree((prevTree) => {
       const updateNode = (nodes: FileNode[]): FileNode[] => {
@@ -684,21 +743,20 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
             if (!node.expanded && node.children?.length === 0) {
               // Load children asynchronously
               isExpandingRef.current = true
-              window.fileSystem?.readDirectory(path).then((entries: Array<{ name: string; type: 'file' | 'directory' }>) => {
+              window.fileSystem?.readDirectory(path, needsStats).then((entries: Array<{ name: string; type: 'file' | 'directory'; size?: number; mtime?: number }>) => {
                 isExpandingRef.current = false
                 if (entries) {
                   const children: FileNode[] = entries
                     .filter((entry) => showHiddenFiles || !entry.name.startsWith('.'))
-                    .sort((a, b) => {
-                      if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
-                      return a.name.localeCompare(b.name)
-                    })
+                    .sort(sortEntries)
                     .map((entry) => ({
                       name: entry.name,
                       path: `${path}/${entry.name}`.replace(/\\/g, '/'),
                       type: entry.type,
                       expanded: false,
                       children: entry.type === 'directory' ? [] : undefined,
+                      size: entry.size,
+                      mtime: entry.mtime,
                     }))
                   setTree((t) => {
                     const updateChildren = (nodes: FileNode[]): FileNode[] => {
@@ -728,7 +786,7 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
       }
       return updateNode(prevTree)
     })
-  }, [showHiddenFiles])
+  }, [showHiddenFiles, sortEntries, needsStats])
 
   // Click handler with Shift/Ctrl multi-select support
   const handleItemClick = useCallback((e: React.MouseEvent, path: string, type: 'file' | 'directory') => {
@@ -1084,6 +1142,14 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
     }
   }, [contextMenu.isOpen, closeContextMenu])
 
+  // Close sort menu when clicking outside
+  useEffect(() => {
+    if (!showSortMenu) return
+    const handleClick = () => setShowSortMenu(false)
+    const timeoutId = setTimeout(() => window.addEventListener('click', handleClick), 10)
+    return () => { clearTimeout(timeoutId); window.removeEventListener('click', handleClick) }
+  }, [showSortMenu])
+
   // Normalize path for comparison
   const normalizePath = useCallback((p: string): string => {
     return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
@@ -1129,6 +1195,37 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
     }
   }, [showHiddenFiles]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Reload tree when sort mode changes
+  useEffect(() => {
+    if (rootPath) {
+      refreshTree()
+    }
+  }, [sortMode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // File watcher: auto-refresh on external file changes
+  const watchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!rootPath) return
+
+    window.fileSystem?.watch(rootPath)
+
+    const unsub = window.fileSystem?.onFsChange((_dirPath, _eventType, _filename) => {
+      // Debounce rapid file changes (e.g., during build, Claude edits)
+      if (watchDebounceRef.current) clearTimeout(watchDebounceRef.current)
+      watchDebounceRef.current = setTimeout(() => {
+        if (!isExpandingRef.current) {
+          refreshTree()
+        }
+      }, 500)
+    })
+
+    return () => {
+      window.fileSystem?.unwatch(rootPath)
+      unsub?.()
+      if (watchDebounceRef.current) clearTimeout(watchDebounceRef.current)
+    }
+  }, [rootPath]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Ref to prevent refresh during folder expansion
   const isExpandingRef = useRef<boolean>(false)
 
@@ -1151,6 +1248,26 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
       />
     )
   }
+
+  // Filter tree recursively: keep nodes whose name matches, plus ancestors
+  const filterTreeFn = (nodes: FileNode[], query: string): FileNode[] => {
+    if (!query) return nodes
+    const q = query.toLowerCase()
+    return nodes.reduce<FileNode[]>((acc, node) => {
+      const nameMatch = node.name.toLowerCase().includes(q)
+      if (node.type === 'directory' && node.children) {
+        const filteredChildren = filterTreeFn(node.children, query)
+        if (nameMatch || filteredChildren.length > 0) {
+          acc.push({ ...node, children: filteredChildren, expanded: filteredChildren.length > 0 })
+        }
+      } else if (nameMatch) {
+        acc.push(node)
+      }
+      return acc
+    }, [])
+  }
+
+  const displayTree = filterQuery ? filterTreeFn(tree, filterQuery) : tree
 
   return (
     <div
@@ -1200,6 +1317,59 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
           </button>
           <button
             className="explorer-action-btn"
+            onClick={collapseAll}
+            title="Collapse All"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 14 10 14 10 20" />
+              <polyline points="20 10 14 10 14 4" />
+              <line x1="14" y1="10" x2="21" y2="3" />
+              <line x1="3" y1="21" x2="10" y2="14" />
+            </svg>
+          </button>
+          <div className="explorer-sort-wrapper">
+            <button
+              className={`explorer-action-btn ${showSortMenu ? 'active' : ''}`}
+              onClick={() => setShowSortMenu(prev => !prev)}
+              title={`Sort by: ${sortMode}`}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="4" y1="6" x2="20" y2="6" />
+                <line x1="4" y1="12" x2="16" y2="12" />
+                <line x1="4" y1="18" x2="12" y2="18" />
+              </svg>
+            </button>
+            {showSortMenu && (
+              <div className="explorer-sort-menu">
+                {([['name', 'Name'], ['type', 'Type'], ['date', 'Date Modified'], ['size', 'Size']] as const).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    className={`explorer-sort-item ${sortMode === mode ? 'active' : ''}`}
+                    onClick={() => { setSortMode(mode); setShowSortMenu(false) }}
+                  >
+                    {sortMode === mode && <span className="sort-check">&#10003;</span>}
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button
+            className={`explorer-action-btn ${showFilter ? 'active' : ''}`}
+            onClick={() => {
+              setShowFilter(prev => !prev)
+              if (!showFilter) setTimeout(() => filterInputRef.current?.focus(), 50)
+              else setFilterQuery('')
+            }}
+            title="Filter Files"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </button>
+          <button
+            className="explorer-action-btn"
             onClick={handleNewFile}
             title="New File"
           >
@@ -1228,31 +1398,96 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
           </button>
         </div>
       </div>
-      <div
-        className="file-explorer-path clickable"
-        onClick={() => {
-          // Navigate to terminal's current directory and clear manual selection
-          onExplorerPathChange?.(undefined)
-          if (currentCwd && currentCwd !== '~') {
-            loadDirectory(currentCwd)
-          } else {
-            window.fileSystem?.getCurrentDirectory().then((cwd: string) => {
-              if (cwd) loadDirectory(cwd)
-            })
-          }
-        }}
-        title="Go to terminal directory"
-      >
-        <span className="path-icon">{Icons.home}</span>
-        <span className="path-text">{rootPath.split(/[/\\]/).pop() || rootPath}</span>
+      <div className="file-explorer-path breadcrumb">
+        <span
+          className="breadcrumb-home"
+          onClick={() => {
+            onExplorerPathChange?.(undefined)
+            if (currentCwd && currentCwd !== '~') {
+              loadDirectory(currentCwd)
+            } else {
+              window.fileSystem?.getCurrentDirectory().then((cwd: string) => {
+                if (cwd) loadDirectory(cwd)
+              })
+            }
+          }}
+          title="Go to terminal directory"
+        >
+          {Icons.home}
+        </span>
+        {(() => {
+          const normalized = rootPath.replace(/\\/g, '/')
+          const parts = normalized.split('/').filter(Boolean)
+          // On Windows paths like C:/Users/... first part is "C:"
+          return parts.map((part, i) => {
+            const fullPath = parts.slice(0, i + 1).join('/')
+            // On Windows, add back the slash prefix only if not a drive letter
+            const navPath = fullPath.includes(':') ? fullPath : '/' + fullPath
+            const isLast = i === parts.length - 1
+            return (
+              <span key={fullPath} className="breadcrumb-segment">
+                <span className="breadcrumb-sep">/</span>
+                <span
+                  className={`breadcrumb-part ${isLast ? 'current' : ''}`}
+                  onClick={() => {
+                    if (!isLast) {
+                      onExplorerPathChange?.(navPath)
+                      loadDirectory(navPath)
+                    }
+                  }}
+                  title={navPath}
+                >
+                  {part}
+                </span>
+              </span>
+            )
+          })
+        })()}
+        {gitBranch && (
+          <span className="git-branch-badge" title={`Branch: ${gitBranch}`}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="6" y1="3" x2="6" y2="15" />
+              <circle cx="18" cy="6" r="3" />
+              <circle cx="6" cy="18" r="3" />
+              <path d="M18 9a9 9 0 0 1-9 9" />
+            </svg>
+            {gitBranch}
+          </span>
+        )}
       </div>
+      {showFilter && (
+        <div className="file-explorer-filter-bar">
+          <input
+            ref={filterInputRef}
+            type="text"
+            className="file-explorer-filter-input"
+            placeholder="Filter files..."
+            value={filterQuery}
+            onChange={(e) => setFilterQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setFilterQuery('')
+                setShowFilter(false)
+              }
+            }}
+          />
+          {filterQuery && (
+            <button
+              className="file-explorer-filter-clear"
+              onClick={() => { setFilterQuery(''); filterInputRef.current?.focus() }}
+            >
+              {Icons.close}
+            </button>
+          )}
+        </div>
+      )}
       <div className="file-explorer-tree" onClick={() => explorerRef.current?.focus()}>
         {loading ? (
           <div className="file-explorer-loading">Loading...</div>
-        ) : tree.length === 0 ? (
-          <div className="file-explorer-empty">No files found</div>
+        ) : displayTree.length === 0 ? (
+          <div className="file-explorer-empty">{filterQuery ? 'No matches found' : 'No files found'}</div>
         ) : (
-          tree.map((node) => (
+          displayTree.map((node) => (
             <FileTreeItem
               key={node.path}
               node={node}
@@ -1263,10 +1498,16 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
               selectedPaths={selectedPaths}
               cutPaths={clipboardState.operation === 'cut' ? clipboardState.paths : []}
               gitStatusMap={gitStatusMap}
+              gitIgnoredSet={gitIgnoredSet}
             />
           ))
         )}
       </div>
+      {selectedPaths.size > 1 && (
+        <div className="file-explorer-selection-bar">
+          {selectedPaths.size} items selected
+        </div>
+      )}
 
       {/* Context Menu - rendered via portal to avoid z-index stacking context issues */}
       {contextMenu.isOpen && createPortal(
@@ -1287,6 +1528,27 @@ export default function FileExplorer({ isOpen, onClose, onFileSelect, onOpenFold
               >
                 {Icons.terminal}
                 <span>Open in New Tab</span>
+              </button>
+              <div className="context-menu-divider" />
+            </>
+          )}
+          {contextMenu.targetPath && (
+            <>
+              <button
+                className="context-menu-item"
+                onClick={() => {
+                  const targetPath = contextMenu.targetPath
+                  closeContextMenu()
+                  const pathStr = targetPath.includes(' ') ? `@"${targetPath}" ` : `@${targetPath} `
+                  window.dispatchEvent(new CustomEvent('insert-to-input', { detail: pathStr }))
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M8 12h8" />
+                  <path d="M12 8v8" />
+                </svg>
+                <span>Add to Claude</span>
               </button>
               <div className="context-menu-divider" />
             </>

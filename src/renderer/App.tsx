@@ -17,6 +17,7 @@ import TeamPanel from './components/TeamPanel'
 import ConfirmDialog from './components/ConfirmDialog'
 import QuickOpen from './components/QuickOpen'
 import SearchPanel from './components/SearchPanel'
+import TaskPanel from './components/TaskPanel'
 import { useTabStore } from './store/tabs'
 import { useHistoryStore } from './store/history'
 import { useSettingsStore } from './store/settings'
@@ -56,6 +57,12 @@ export default function App() {
           window.terminal.write(tab.terminalId, realCmd + '\r')
         }
       }
+      return
+    }
+
+    // Special command: Toggle Task Panel
+    if (command === '__TASK_PANEL__') {
+      setTaskPanelOpen(prev => !prev)
       return
     }
 
@@ -145,6 +152,35 @@ export default function App() {
     window.addEventListener('focus', handleWindowFocus)
     return () => window.removeEventListener('focus', handleWindowFocus)
   }, [])
+
+  // Handle Claude Code shortcuts dispatched from TerminalInput
+  useEffect(() => {
+    const handleToggleTaskList = () => {
+      // Claude Code's Ctrl+T: Toggle task list (send to terminal)
+      const cmd = '\x14' // Ctrl+T control character
+      const activeTab = tabs.find(t => t.id === activeTabId)
+      if (activeTab?.terminalId !== null && activeTab?.terminalId !== undefined) {
+        window.terminal.write(activeTab.terminalId, cmd)
+      }
+    }
+
+    const handleOpenInEditor = () => {
+      // Claude Code's Ctrl+G: Open in editor (send to terminal)
+      const cmd = '\x07' // Ctrl+G control character (BEL)
+      const activeTab = tabs.find(t => t.id === activeTabId)
+      if (activeTab?.terminalId !== null && activeTab?.terminalId !== undefined) {
+        window.terminal.write(activeTab.terminalId, cmd)
+      }
+    }
+
+    window.addEventListener('toggle-task-list', handleToggleTaskList)
+    window.addEventListener('open-in-editor', handleOpenInEditor)
+
+    return () => {
+      window.removeEventListener('toggle-task-list', handleToggleTaskList)
+      window.removeEventListener('open-in-editor', handleOpenInEditor)
+    }
+  }, [tabs, activeTabId])
 
   // Start Agent Teams watcher on mount
   const startWatchingTeams = useAgentTeamsStore(s => s.startWatching)
@@ -236,6 +272,7 @@ export default function App() {
   const [conversationViewOpen, setConversationViewOpen] = useState(false)
   const [explorerOpen, setExplorerOpen] = useState(true)
   const [searchPanelOpen, setSearchPanelOpen] = useState(false)
+  const [taskPanelOpen, setTaskPanelOpen] = useState(false)
 
   // 탭별 파일 에디터 상태 (전역 상태 대신 탭에서 가져옴)
   const activeEditingFilePath = activeTab?.editingFilePath ?? null
@@ -266,9 +303,73 @@ export default function App() {
     const isMod = e.ctrlKey || e.metaKey
     const key = e.key.toLowerCase()
 
+    // Check if input is focused
+    const isInputFocused = document.activeElement?.tagName === 'TEXTAREA' ||
+                          document.activeElement?.tagName === 'INPUT'
+
     // Allow Page Up/Down to pass through to terminal for scrolling
     if (e.key === 'PageUp' || e.key === 'PageDown') {
       return
+    }
+
+    // Auto-focus input on regular character input (except arrow keys, modifiers, function keys)
+    // This allows typing anywhere to focus input, but preserves arrow key scrolling
+    if (!isInputFocused && !isMod && !e.altKey) {
+      const isNavigationKey = [
+        'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+        'Home', 'End', 'PageUp', 'PageDown',
+        'Tab', 'Escape', 'Enter',
+        'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'
+      ].includes(e.key)
+
+      const isModifierOnly = ['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)
+
+      // If it's a regular character (not navigation/modifier), focus input immediately
+      if (!isNavigationKey && !isModifierOnly && e.key.length === 1) {
+        const input = document.querySelector('.terminal-input') as HTMLTextAreaElement
+        if (input) {
+          console.log('✨ Auto-focusing input on key:', e.key, 'from:', document.activeElement?.tagName)
+          input.focus()
+          // Let the key pass through naturally to the now-focused input
+        } else {
+          console.warn('⚠️ Could not find .terminal-input')
+        }
+        return
+      }
+    }
+
+    // If input is focused, only allow app-level shortcuts (Ctrl+Shift+*, navigation, etc.)
+    // Let Claude Code shortcuts (Ctrl+C/D/L/R/T/G/O/U/K/Y/Z) pass through to TerminalInput
+    if (isInputFocused) {
+      // Allow these app-level shortcuts even when input is focused
+      const allowedWhenFocused = [
+        'p', // Ctrl+P (quick open), Ctrl+Shift+P (command palette)
+        'f', // Ctrl+F (search), Ctrl+Shift+F (search in files)
+        'w', // Ctrl+W (close tab)
+        'n', // Ctrl+Shift+N (new tab)
+        'e', // Ctrl+E (file explorer)
+        'h', // Ctrl+H (history)
+        'tab', // Ctrl+Tab (tab switching)
+        ',', // Ctrl+, (settings)
+        '\\', // Ctrl+\ (split)
+        '|', // Ctrl+Shift+\ (split)
+        'backslash', // Ctrl+\ (split)
+      ]
+
+      // Ctrl+Shift+* combinations are always app-level
+      if (e.shiftKey) {
+        // Allow Ctrl+Shift+P, Ctrl+Shift+F, Ctrl+Shift+N, etc.
+      } else if (isMod && !allowedWhenFocused.includes(key) && e.code !== 'Backslash') {
+        // Block other Ctrl+* shortcuts when input is focused
+        return
+      }
+
+      // Allow Ctrl+1~9 for tab switching
+      if (isMod && e.key >= '1' && e.key <= '9') {
+        // Continue to handle below
+      } else if (isMod && !allowedWhenFocused.includes(key) && !e.shiftKey && e.code !== 'Backslash') {
+        return
+      }
     }
 
     // Ctrl+F: Open search
@@ -303,11 +404,19 @@ export default function App() {
       return
     }
 
-    // Ctrl+K: Focus terminal input
-    if (isMod && key === 'k') {
+    // Ctrl+Shift+T: Toggle Task Panel (app-level task panel, not Claude task list)
+    if (isMod && e.shiftKey && key === 't') {
       e.preventDefault()
       e.stopPropagation()
-      window.dispatchEvent(new CustomEvent('focus-terminal-input'))
+      setTaskPanelOpen(prev => !prev)
+      return
+    }
+
+    // Ctrl+Shift+N: New tab (changed from Ctrl+T to avoid conflict with Claude Code)
+    if (isMod && e.shiftKey && key === 'n') {
+      e.preventDefault()
+      e.stopPropagation()
+      addTab()
       return
     }
 
@@ -334,14 +443,6 @@ export default function App() {
       e.preventDefault()
       e.stopPropagation()
       sendCommandToTerminal('claude --dangerously-skip-permissions')
-      return
-    }
-
-    // Ctrl+T: New tab
-    if (isMod && key === 't') {
-      e.preventDefault()
-      e.stopPropagation()
-      addTab()
       return
     }
 
@@ -404,8 +505,8 @@ export default function App() {
 
     // Skip panel/split shortcuts when Dashboard is active
     if (!showDashboard) {
-      // Ctrl+B: Toggle file explorer
-      if (isMod && key === 'b') {
+      // Ctrl+E: Toggle file explorer (changed from Ctrl+B to avoid conflict with Claude Code)
+      if (isMod && key === 'e') {
         e.preventDefault()
         e.stopPropagation()
         setExplorerOpen(prev => !prev)
@@ -476,7 +577,7 @@ export default function App() {
       }
       // No panel open → let Escape pass through to terminal (e.g., stop Claude)
     }
-  }, [tabs, activeTabId, addTab, removeTab, setActiveTab, historyOpen, settingsOpen, conversationViewOpen, splitMode, setSplitMode, sendCommandToTerminal, claudeSettingsOpen, showDashboard])
+  }, [tabs, activeTabId, addTab, removeTab, setActiveTab, historyOpen, settingsOpen, conversationViewOpen, splitMode, setSplitMode, sendCommandToTerminal, claudeSettingsOpen, showDashboard, setTaskPanelOpen])
 
   // Register keyboard shortcuts - use capture phase to catch before xterm
   useEffect(() => {
@@ -670,6 +771,11 @@ export default function App() {
           }
         }}
         rootPath={activeExplorerPath || activeTabCwd || ''}
+      />
+      <TaskPanel
+        isOpen={taskPanelOpen}
+        onClose={() => setTaskPanelOpen(false)}
+        projectPath={activeTabCwd}
       />
     </div>
   )
