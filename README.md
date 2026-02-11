@@ -1,5 +1,11 @@
 # 묘로드 (Myo-node)
 
+> 🐱 **"묘"**(meow)와 **"클로드"**(Claude)의 만남
+> 고양이를 사랑하는 마음과 Claude Code에 대한 애정을 담아 탄생한 터미널 에뮬레이터입니다.
+>
+> 💝 **누구나 마음껏 수정하세요!**
+> 이 프로젝트는 모두에게 열려있습니다. 자유롭게 기여하고 개선해주세요.
+
 Cross-platform terminal emulator for Claude Code
 
 ## Features
@@ -28,7 +34,7 @@ Cross-platform terminal emulator for Claude Code
 
 ```bash
 # Clone the repository
-git clone https://gitlab.hyperledger.store/fuzo0701/myo-node.git
+git clone <repository-url>
 cd myo-node
 
 # Install dependencies
