@@ -134,3 +134,7 @@ npm run package:linux
 ## License
 
 MIT
+
+---
+
+**Made with 💝 for Claude Code users**
