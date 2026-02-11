@@ -1,0 +1,122 @@
+.confirm-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  backdrop-filter: blur(2px);
+}
+
+.confirm-dialog {
+  background: var(--bg-secondary, #1e1e1e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  min-width: 400px;
+  max-width: 500px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  animation: dialog-appear 0.15s ease-out;
+}
+
+@keyframes dialog-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.confirm-dialog-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color, #333);
+}
+
+.confirm-dialog-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary, #fff);
+}
+
+.confirm-dialog-body {
+  padding: 20px;
+}
+
+.confirm-dialog-body p {
+  margin: 0;
+  color: var(--text-secondary, #ccc);
+  line-height: 1.5;
+}
+
+.confirm-dialog-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-color, #333);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirm-dialog-button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.confirm-dialog-button.cancel {
+  background: transparent;
+  color: var(--text-secondary, #ccc);
+  border: 1px solid var(--border-color, #333);
+}
+
+.confirm-dialog-button.cancel:hover {
+  background: var(--bg-hover, #2a2a2a);
+  border-color: var(--border-hover, #444);
+}
+
+.confirm-dialog-button.confirm {
+  color: #fff;
+}
+
+.confirm-dialog-button.confirm.info {
+  background: #0078d4;
+}
+
+.confirm-dialog-button.confirm.info:hover {
+  background: #006cbe;
+}
+
+.confirm-dialog-button.confirm.warning {
+  background: #ff9800;
+}
+
+.confirm-dialog-button.confirm.warning:hover {
+  background: #f57c00;
+}
+
+.confirm-dialog-button.confirm.danger {
+  background: #dc3545;
+}
+
+.confirm-dialog-button.confirm.danger:hover {
+  background: #c82333;
+}
+
+.confirm-dialog-button:active {
+  transform: scale(0.98);
+}
+
+.confirm-dialog-button:focus {
+  outline: 2px solid var(--accent-color, #0078d4);
+  outline-offset: 2px;
+}
