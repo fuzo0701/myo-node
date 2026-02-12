@@ -6,8 +6,9 @@ on:
       - 'v*'
 
 jobs:
-  release:
+  build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
@@ -29,6 +30,18 @@ jobs:
         node-version: '20.x'
         cache: 'npm'
 
+    - name: Install Linux dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential python3 make g++
+
+    - name: Setup Python (Windows)
+      if: runner.os == 'Windows'
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
     - name: Install dependencies
       run: npm ci
 
@@ -40,35 +53,35 @@ jobs:
       env:
         GH_TOKEN: ''
         GITHUB_TOKEN: ''
+        CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.platform }}-release
-        path: release/*
-        retention-days: 30
+        name: ${{ matrix.platform }}-build
+        path: release/**/*
+        if-no-files-found: error
 
   create-release:
-    needs: release
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
     - name: Download all artifacts
       uses: actions/download-artifact@v4
       with:
-        path: release-artifacts
+        path: artifacts
+
+    - name: Display structure
+      run: ls -R artifacts
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
-        files: release-artifacts/**/*
+        files: artifacts/**/*
         draft: false
         prerelease: false
         generate_release_notes: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        fail_on_unmatched_files: false
