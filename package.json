@@ -51,7 +51,10 @@
     "claude",
     "electron"
   ],
-  "author": "",
+  "author": {
+    "name": "Myo-node Team",
+    "email": "myo-node@example.com"
+  },
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.10.0",
