@@ -11,10 +11,10 @@
     "build:renderer": "vite build",
     "build:main": "tsc -p tsconfig.main.json",
     "start": "electron .",
-    "package": "electron-builder",
-    "package:win": "electron-builder --win",
-    "package:mac": "electron-builder --mac",
-    "package:linux": "electron-builder --linux"
+    "package": "electron-builder --publish never",
+    "package:win": "electron-builder --win --publish never",
+    "package:mac": "electron-builder --mac --publish never",
+    "package:linux": "electron-builder --linux --publish never"
   },
   "build": {
     "appId": "com.myonode.app",
